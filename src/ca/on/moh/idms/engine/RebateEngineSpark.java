@@ -145,6 +145,7 @@ public class RebateEngineSpark {
 					String intervention9 = rs.getString("INTERVENTION_9");
 					String intervention10 = rs.getString("INTERVENTION_10");
 					
+					
 					row.setManufacturerCd(manufacturerCode);
 					row.setDinPin(din);
 					row.setDtOfServ(dateOfServ);
@@ -178,9 +179,7 @@ public class RebateEngineSpark {
 					ps1.setDate(5, dateOfServ);
 					ps1.setDouble(6, quantity);
 					ps1.setDouble(7, drugCostAllowed);
-					ps1.setDouble(8, prodSel);
-					
-					ps1.setString(9,intervention1);
+					ps1.setDouble(8, prodSel);				ps1.setString(9,intervention1);
 					ps1.setString(10,intervention2);
 					ps1.setString(11,intervention3);
 					ps1.setString(12,intervention4);

@@ -6,12 +6,15 @@ import gov.moh.config.PropertyConfig;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.Serializable;
 import java.sql.Connection;
 import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -19,10 +22,18 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.log4j.*;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoder;
+import org.apache.spark.sql.Encoders;
+import org.apache.spark.sql.SparkSession;
 
 import ca.on.moh.idms.util.RebateCalculatorCache;
 import ca.on.moh.idms.util.RebateConstant;
@@ -41,10 +52,16 @@ public class RebateEngineSpark {
 		System.out.println("Calculation engine started ...... ");
 		
 		PropertyConfig.setPropertyPath(appRoot + "\\conf\\system.properties");
-		RebateCalculator calculator = new RebateCalculator();
+		RebateEngineSpark calculator = new RebateEngineSpark();
 		String manufacturerCode = "LEO";
 		Connection conn1 = null;
 		Connection conn2 = null;
+		
+		
+
+		
+		
+		
 		try{
 			long startTime = System.currentTimeMillis();
 			String username = PropertyConfig.getProperty("app.config.db.username2");
@@ -73,6 +90,7 @@ public class RebateEngineSpark {
 		PropertyConfig.setPropertyPath(appRoot + "\\conf\\system.properties");
 		
 		step1CreateTemp01(manufacturerCode, conn2);
+		
 		step2CreateTemp03(manufacturerCode, conn2);
 		step3CreateTemp02(manufacturerCode, conn2);
 		step4CreateTemp99(manufacturerCode, conn2);
@@ -92,12 +110,14 @@ public class RebateEngineSpark {
 	
 	public List<RebateVO> step1CreateTemp01(String manufacturerCode, Connection conn) throws Exception{// here din is "02418401" for the example
 		
+		
 		List<RebateVO> temp01 = new ArrayList<RebateVO>();
 		
 		String historyStartDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.HISTORY_START_DATE);	//JUN 29 2015
 		String historyEndDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.HISTORY_END_DATE);	//JUN 30 2015
 
-		String sql = "select DIN_PIN,DT_OF_SERV, ADJUDICATION_DT, PROF_FEE_ALLD,QTY,DRG_CST_ALLD,PROG_ID,PROD_SEL, INTERVENTION_1, " +
+		String sql = "select DIN_PIN,DT_OF_SERV, ADJUDICATION"
+				+ "_DT, PROF_FEE_ALLD,QTY,DRG_CST_ALLD,PROG_ID,PROD_SEL, INTERVENTION_1, " +
 				"INTERVENTION_2, INTERVENTION_3, INTERVENTION_4, INTERVENTION_5, INTERVENTION_6, INTERVENTION_7, INTERVENTION_8, INTERVENTION_9, INTERVENTION_10 " +
 				"from CLMHIST " +
 				"where CURR_STAT = 'P' and Trunc(DT_OF_SERV) >= to_date('" + historyStartDate + "','MM-DD-YYYY') AND " +
@@ -108,6 +128,8 @@ public class RebateEngineSpark {
 		PreparedStatement ps = null;
 		PreparedStatement ps1 = null;
 		ResultSet rs = null;
+		
+		
 		try{
 			String sql1 = "TRUNCATE TABLE TEMP01";
 			ps =  conn.prepareStatement(sql1);
@@ -116,7 +138,32 @@ public class RebateEngineSpark {
 			
 			ps = conn.prepareStatement(sql);
 			rs = ps.executeQuery();
+			
+			
+			Logger.getLogger("org").setLevel(Level.ERROR);
+			SparkConf conf = new SparkConf().setAppName("StackOverFlowSurvey").setMaster("local[1]");
+			JavaSparkContext sc = new JavaSparkContext(conf);
+			List<String> rebateList = Arrays.asList("DIN_PIN","DT_OF_SERV","ADJUDICATION_DT");
+			JavaRDD<String> stringRDD = sc.parallelize(rebateList);
+			/*try to print out rebateRDD on console and check its schema, convert JavaRDD<String> to JavaRDD<RebateVO>
+			 * by using filter,map
+			 * 
+			 * 
+			 *
+			 */
+			SparkSession session = SparkSession.builder().appName("RebateEngine").master("local[1]").getOrCreate();
+			Encoder<RebateVO> rebateEncoder = Encoders.bean(RebateVO.class);
+			Dataset<RebateVO> javaBeanDS = session.createDataset(
+					rebateVORDD.rdd(),
+					rebateEncoder
+					);
+			//JavaRDD<RebateVO> rebateJavaRDD = javaBeanDS.toJavaRDD();
+			javaBeanDS.printSchema(); 
+			//javaBeanDS.show();
+			
+			
 			if(rs != null){
+				
 				int key = 1;
 				while(rs.next()){
 					RebateVO row = new RebateVO();
@@ -145,7 +192,7 @@ public class RebateEngineSpark {
 					String intervention9 = rs.getString("INTERVENTION_9");
 					String intervention10 = rs.getString("INTERVENTION_10");
 					
-					
+					row.setManufacturerCd(manufacturerCode);
 					row.setManufacturerCd(manufacturerCode);
 					row.setDinPin(din);
 					row.setDtOfServ(dateOfServ);
@@ -167,6 +214,9 @@ public class RebateEngineSpark {
 					row.setIntervention5(intervention5);
 					row.setIntervention6(intervention6);
 
+					
+					
+					
 					String sql2 = "INSERT INTO TEMP01 (CLAIM_ID,DIN_PIN,PROF_FEE_ALLD,ADJUDICATION_DT,DT_OF_SERV,QTY,DRG_CST_ALLD,PROD_SEL,INTERVENTION_1," +
 							"INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6,INTERVENTION_7,INTERVENTION_8,INTERVENTION_9,INTERVENTION_10) "+
 							"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
@@ -179,7 +229,8 @@ public class RebateEngineSpark {
 					ps1.setDate(5, dateOfServ);
 					ps1.setDouble(6, quantity);
 					ps1.setDouble(7, drugCostAllowed);
-					ps1.setDouble(8, prodSel);				ps1.setString(9,intervention1);
+					ps1.setDouble(8, prodSel);				
+					ps1.setString(9,intervention1);
 					ps1.setString(10,intervention2);
 					ps1.setString(11,intervention3);
 					ps1.setString(12,intervention4);

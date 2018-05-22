@@ -73,6 +73,7 @@ public class RebateCalculator {
 		PropertyConfig.setPropertyPath(appRoot + "\\conf\\system.properties");
 		
 		step1CreateTemp01(manufacturerCode, conn2);
+		System.out.println("hello world"); // test
 		step2CreateTemp03(manufacturerCode, conn2);
 		step3CreateTemp02(manufacturerCode, conn2);
 		step4CreateTemp99(manufacturerCode, conn2);

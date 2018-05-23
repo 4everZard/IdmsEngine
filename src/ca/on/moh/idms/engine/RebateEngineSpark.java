@@ -56,12 +56,7 @@ public class RebateEngineSpark {
 		String manufacturerCode = "LEO";
 		Connection conn1 = null;
 		Connection conn2 = null;
-		
-		
 
-		
-		
-		
 		try{
 			long startTime = System.currentTimeMillis();
 			String username = PropertyConfig.getProperty("app.config.db.username2");
@@ -120,8 +115,8 @@ public class RebateEngineSpark {
 				+ "_DT, PROF_FEE_ALLD,QTY,DRG_CST_ALLD,PROG_ID,PROD_SEL, INTERVENTION_1, " +
 				"INTERVENTION_2, INTERVENTION_3, INTERVENTION_4, INTERVENTION_5, INTERVENTION_6, INTERVENTION_7, INTERVENTION_8, INTERVENTION_9, INTERVENTION_10 " +
 				"from CLMHIST " +
-				"where CURR_STAT = 'P' and Trunc(DT_OF_SERV) >= to_date('" + historyStartDate + "','MM-DD-YYYY') AND " +
-						"Trunc(DT_OF_SERV) <= to_date('" + historyEndDate + "','MM-DD-YYYY') AND " +
+				"where CURR_STAT = 'P' and Trunc(DT_OF_SERV,'YEAR') >= to_date('" + historyStartDate + "','MM-DD-YYYY') AND " +
+						"Trunc(DT_OF_SERV,'YEAR') <= to_date('" + historyEndDate + "','MM-DD-YYYY') AND " +
 						"PROG_ID <> 'TP' and DIN_PIN in (select DIN_PIN from SCHEDULE_A where MANUFACTURER_CD = '" + manufacturerCode + "')";
 		
 
@@ -147,19 +142,31 @@ public class RebateEngineSpark {
 			JavaRDD<String> stringRDD = sc.parallelize(rebateList);
 			/*try to print out rebateRDD on console and check its schema, convert JavaRDD<String> to JavaRDD<RebateVO>
 			 * by using filter,map
-			 * 
-			 * 
-			 *
+			
 			 */
-			SparkSession session = SparkSession.builder().appName("RebateEngine").master("local[1]").getOrCreate();
+		/*	for(String schema: stringRDD.collect()){
+				System.out.println(schema);
+			}*/
+			JavaRDD<RebateVO> rebateVORDD = stringRDD
+										    .map( line -> {
+									        String[] splits = line.split(" ");
+									        return new RebateVO();
+			});
+			
+		
+			SparkSession session = SparkSession.builder()
+											   .appName("RebateEngine")
+											   .master("local[1]")
+											   .getOrCreate();
+			
 			Encoder<RebateVO> rebateEncoder = Encoders.bean(RebateVO.class);
 			Dataset<RebateVO> javaBeanDS = session.createDataset(
 					rebateVORDD.rdd(),
 					rebateEncoder
 					);
-			//JavaRDD<RebateVO> rebateJavaRDD = javaBeanDS.toJavaRDD();
+			
 			javaBeanDS.printSchema(); 
-			//javaBeanDS.show();
+			javaBeanDS.show();
 			
 			
 			if(rs != null){
@@ -179,6 +186,7 @@ public class RebateEngineSpark {
 					//String currentRxNo = rs.getString("CURR_RX_NO");
 					//String manufactuerCode = rs.getString("MANUFACTURER_CD");
 					int quantity = rs.getInt("QTY");
+					
 					double prodSel = rs.getDouble("PROD_SEL");
 					String progId =  rs.getString("PROG_ID");
 					String intervention1 = rs.getString("INTERVENTION_1");
@@ -190,7 +198,7 @@ public class RebateEngineSpark {
 					String intervention7 = rs.getString("INTERVENTION_7");
 					String intervention8 = rs.getString("INTERVENTION_8");
 					String intervention9 = rs.getString("INTERVENTION_9");
-					String intervention10 = rs.getString("INTERVENTION_10");
+					String intervention10 = rs.getString("INTERVENTION_10");	
 					
 					row.setManufacturerCd(manufacturerCode);
 					row.setManufacturerCd(manufacturerCode);
@@ -213,11 +221,8 @@ public class RebateEngineSpark {
 					row.setIntervention4(intervention4);
 					row.setIntervention5(intervention5);
 					row.setIntervention6(intervention6);
-
-					
-					
-					
-					String sql2 = "INSERT INTO TEMP01 (CLAIM_ID,DIN_PIN,PROF_FEE_ALLD,ADJUDICATION_DT,DT_OF_SERV,QTY,DRG_CST_ALLD,PROD_SEL,INTERVENTION_1," +
+		
+				/*	String sql2 = "INSERT INTO TEMP01 (CLAIM_ID,DIN_PIN,PROF_FEE_ALLD,ADJUDICATION_DT,DT_OF_SERV,QTY,DRG_CST_ALLD,PROD_SEL,INTERVENTION_1," +
 							"INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6,INTERVENTION_7,INTERVENTION_8,INTERVENTION_9,INTERVENTION_10) "+
 							"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 	
@@ -243,7 +248,7 @@ public class RebateEngineSpark {
 					
 					ps1.executeUpdate();
 					
-					temp01.add(row);
+					temp01.add(row); */
 				}
 			}
 		}catch(Exception e){

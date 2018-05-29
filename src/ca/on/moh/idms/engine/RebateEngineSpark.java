@@ -1,5 +1,6 @@
 package ca.on.moh.idms.engine;
 
+import static org.apache.spark.sql.functions.col;
 import gov.moh.app.db.DBConnectionManager;
 import gov.moh.config.ConfigFromDB;
 import gov.moh.config.PropertyConfig;
@@ -20,6 +21,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import org.apache.log4j.*;
@@ -33,8 +35,13 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoder;
 import org.apache.spark.sql.Encoders;
+import org.apache.spark.sql.SQLContext;
 import org.apache.spark.sql.SparkSession;
 
+import static org.apache.spark.sql.functions.date_sub;
+import static org.apache.spark.sql.functions.col;
+import static org.apache.spark.sql.functions.max;
+import ca.on.moh.idms.util.RebateConstant;
 import ca.on.moh.idms.util.RebateCalculatorCache;
 import ca.on.moh.idms.util.RebateConstant;
 import ca.on.moh.idms.vo.RebateVO;
@@ -45,17 +52,26 @@ public class RebateEngineSpark {
 	private static Map<String, List<RebateVO>> dinDetails;
 	private List<String> twoPriceDinList;
 	private List<String> threePriceDinList;
-	
 	static String appRoot = System.getProperty("user.dir");
+	SparkSession spark = SparkSession
+		      .builder()
+		      .appName("Java Spark SQL data sources example")
+		      .config("spark.some.config.option", "some-value")
+		      .master("local[1]")
+		      .getOrCreate();
 	
 	public static void main (String [] args) throws Exception {
 		System.out.println("Calculation engine started ...... ");
-		
+		Logger.getLogger("org").setLevel(Level.ERROR);
 		PropertyConfig.setPropertyPath(appRoot + "\\conf\\system.properties");
 		RebateEngineSpark calculator = new RebateEngineSpark();
 		String manufacturerCode = "LEO";
 		Connection conn1 = null;
 		Connection conn2 = null;
+		
+		Properties connectionProperties = new Properties();
+		connectionProperties.put("user",PropertyConfig.getProperty("app.config.db.username2"));
+		connectionProperties.put("password",PropertyConfig.getProperty("app.config.db.password2"));
 
 		try{
 			long startTime = System.currentTimeMillis();
@@ -66,7 +82,7 @@ public class RebateEngineSpark {
 			conn2 = DBConnectionManager.getManager().getConnection(username,pwd,url);
 			
 			String filepathAndName = "C:\\TEMP\\IDMS\\data";
-			calculator.calculateRebate(manufacturerCode, conn1,conn2,filepathAndName);
+			calculator.calculateRebate(manufacturerCode, conn1,conn2,filepathAndName,connectionProperties);
 			
 			long endTime = System.currentTimeMillis();
 			long timeSpent = (endTime - startTime)/1000;
@@ -81,29 +97,29 @@ public class RebateEngineSpark {
 		System.out.println("Calculation Completed. ");
 	}
 	
-	public void calculateRebate(String manufacturerCode, Connection conn1, Connection conn2, String path) throws Exception{
+	public void calculateRebate(String manufacturerCode, Connection conn1, Connection conn2, String path, Properties connectionProperties ) throws Exception{
 		PropertyConfig.setPropertyPath(appRoot + "\\conf\\system.properties");
 		
-		step1CreateTemp01(manufacturerCode, conn2);
+		step1CreateTemp01(manufacturerCode, conn2, connectionProperties);
 		
-		step2CreateTemp03(manufacturerCode, conn2);
-		step3CreateTemp02(manufacturerCode, conn2);
-		step4CreateTemp99(manufacturerCode, conn2);
-		step5Join2To4TogetherTemp02(manufacturerCode, conn1);
-		step6And7DefineMissingDBTemp02(manufacturerCode, conn1);
-		step8CreateTemp04(manufacturerCode, conn1);
-		step9CreateTemp05(manufacturerCode, conn1);
-		step10CreateTemp06(manufacturerCode, conn1);
-		step11To13CreateTemp07(manufacturerCode, conn1);
-		step14CreateTemp08(manufacturerCode, conn1);
-		step15CalculateVolumeDiscountTemp08(manufacturerCode, conn1);
-		step16And17CreateTemp09(manufacturerCode, conn1);
-		step18And19CreateSummaryFileTemp11(manufacturerCode, conn1);
-		step20And21CreateSummaryFileFromTemp11(manufacturerCode, conn1,path);
+		step2CreateTemp03(manufacturerCode, conn2, connectionProperties);
+		step3CreateTemp02(manufacturerCode, conn2, connectionProperties);
+		step4CreateTemp99(manufacturerCode, conn2, connectionProperties);
+		step5Join2To4TogetherTemp02(manufacturerCode, conn1, connectionProperties);
+		step6And7DefineMissingDBTemp02(manufacturerCode, conn1, connectionProperties);
+		step8CreateTemp04(manufacturerCode, conn1, connectionProperties);
+		step9CreateTemp05(manufacturerCode, conn1, connectionProperties);
+		step10CreateTemp06(manufacturerCode, conn1, connectionProperties);
+		step11To13CreateTemp07(manufacturerCode, conn1, connectionProperties);
+		step14CreateTemp08(manufacturerCode, conn1, connectionProperties);
+		step15CalculateVolumeDiscountTemp08(manufacturerCode, conn1, connectionProperties);
+		step16And17CreateTemp09(manufacturerCode, conn1, connectionProperties);
+		step18And19CreateSummaryFileTemp11(manufacturerCode, conn1, connectionProperties);
+		step20And21CreateSummaryFileFromTemp11(manufacturerCode, conn1,path, connectionProperties);
 		
 	}
 	
-	public List<RebateVO> step1CreateTemp01(String manufacturerCode, Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step1CreateTemp01(String manufacturerCode, Connection conn, Properties connectionProperties ) throws Exception{// here din is "02418401" for the example
 		
 		
 		List<RebateVO> temp01 = new ArrayList<RebateVO>();
@@ -111,18 +127,32 @@ public class RebateEngineSpark {
 		String historyStartDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.HISTORY_START_DATE);	//JUN 29 2015
 		String historyEndDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.HISTORY_END_DATE);	//JUN 30 2015
 		
-		String sql = "select DIN_PIN,DT_OF_SERV, ADJUDICATION"
-				+ "_DT, PROF_FEE_ALLD,QTY,DRG_CST_ALLD,PROG_ID,PROD_SEL, INTERVENTION_1, " +
+		String sparkSql = "select DIN_PIN,DT_OF_SERV, ADJUDICATION_DT, PROF_FEE_ALLD,QTY,DRG_CST_ALLD,PROG_ID,PROD_SEL, INTERVENTION_1, " +
 				"INTERVENTION_2, INTERVENTION_3, INTERVENTION_4, INTERVENTION_5, INTERVENTION_6, INTERVENTION_7, INTERVENTION_8, INTERVENTION_9, INTERVENTION_10 " +
 				"from CLMHIST " +
-				"where CURR_STAT = 'P' and Trunc(DT_OF_SERV,'YEAR') >= to_date('" + historyStartDate + "','MM-DD-YYYY') AND " +
-						"Trunc(DT_OF_SERV,'YEAR') <= to_date('" + historyEndDate + "','MM-DD-YYYY') AND " +
+				"where CURR_STAT = 'P' and date_sub(DT_OF_SERV,0) >= to_date('" + historyStartDate + "','MM-DD-YYYY') AND " +
+						"date_sub(DT_OF_SERV,0) <= to_date('" + historyEndDate + "','MM-DD-YYYY') AND " +
+						"PROG_ID <> 'TP' and DIN_PIN in (select DIN_PIN from SCHEDULE_A where MANUFACTURER_CD = '" + manufacturerCode + "')";
+		
+		String sql = "select DIN_PIN,DT_OF_SERV, ADJUDICATION_DT, PROF_FEE_ALLD,QTY,DRG_CST_ALLD,PROG_ID,PROD_SEL, INTERVENTION_1, " +
+				"INTERVENTION_2, INTERVENTION_3, INTERVENTION_4, INTERVENTION_5, INTERVENTION_6, INTERVENTION_7, INTERVENTION_8, INTERVENTION_9, INTERVENTION_10 " +
+				"from CLMHIST " +
+				"where CURR_STAT = 'P' and Trunc(DT_OF_SERV) >= to_date('" + historyStartDate + "','MM-DD-YYYY') AND " +
+						"Trunc(DT_OF_SERV) <= to_date('" + historyEndDate + "','MM-DD-YYYY') AND " +
 						"PROG_ID <> 'TP' and DIN_PIN in (select DIN_PIN from SCHEDULE_A where MANUFACTURER_CD = '" + manufacturerCode + "')";
 		
 
 		PreparedStatement ps = null;
 		PreparedStatement ps1 = null;
 		ResultSet rs = null;
+		
+		Dataset<org.apache.spark.sql.Row> temp01DS = spark.read()
+				  .jdbc(PropertyConfig.getProperty("app.config.db.dbUrl2"),"CLMHIST", connectionProperties);
+		temp01DS.createOrReplaceTempView("CLMHIST");      // Register the DataFrame as a SQL temporary view
+		Dataset<org.apache.spark.sql.Row> scheduleADS = spark.read()
+				  .jdbc(PropertyConfig.getProperty("app.config.db.dbUrl2"),"SCHEDULE_A", connectionProperties);
+		scheduleADS.createOrReplaceTempView("SCHEDULE_A");
+		
 		
 		
 		try{
@@ -133,42 +163,6 @@ public class RebateEngineSpark {
 			
 			ps = conn.prepareStatement(sql);
 			rs = ps.executeQuery();
-			
-			
-			Logger.getLogger("org").setLevel(Level.ERROR);
-			SparkConf conf = new SparkConf().setAppName("StackOverFlowSurvey").setMaster("local[1]");
-			JavaSparkContext sc = new JavaSparkContext(conf);
-			List<String> rebateList = Arrays.asList("DIN_PIN","DT_OF_SERV","ADJUDICATION_DT");
-			JavaRDD<String> stringRDD = sc.parallelize(rebateList);
-			/*try to print out rebateRDD on console and check its schema, convert JavaRDD<String> to JavaRDD<RebateVO>
-			 * by using filter,map
-			
-			 */
-		/*	for(String schema: stringRDD.collect()){
-				System.out.println(schema);
-			}*/
-			JavaRDD<RebateVO> rebateVORDD = stringRDD
-										    .map( line -> {
-									        String[] splits = line.split(" ");
-									        return new RebateVO();
-			});
-			
-		
-			SparkSession session = SparkSession.builder()
-											   .appName("RebateEngine")
-											   .master("local[1]")
-											   .getOrCreate();
-			
-			Encoder<RebateVO> rebateEncoder = Encoders.bean(RebateVO.class);
-			Dataset<RebateVO> javaBeanDS = session.createDataset(
-					rebateVORDD.rdd(),
-					rebateEncoder
-					);
-			
-			javaBeanDS.printSchema(); 
-			javaBeanDS.show();
-			
-			
 			if(rs != null){
 				
 				int key = 1;
@@ -221,8 +215,8 @@ public class RebateEngineSpark {
 					row.setIntervention4(intervention4);
 					row.setIntervention5(intervention5);
 					row.setIntervention6(intervention6);
-		
-				/*	String sql2 = "INSERT INTO TEMP01 (CLAIM_ID,DIN_PIN,PROF_FEE_ALLD,ADJUDICATION_DT,DT_OF_SERV,QTY,DRG_CST_ALLD,PROD_SEL,INTERVENTION_1," +
+					
+					String sql2 = "INSERT INTO TEMP01 (CLAIM_ID,DIN_PIN,PROF_FEE_ALLD,ADJUDICATION_DT,DT_OF_SERV,QTY,DRG_CST_ALLD,PROD_SEL,INTERVENTION_1," +
 							"INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6,INTERVENTION_7,INTERVENTION_8,INTERVENTION_9,INTERVENTION_10) "+
 							"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 	
@@ -234,7 +228,8 @@ public class RebateEngineSpark {
 					ps1.setDate(5, dateOfServ);
 					ps1.setDouble(6, quantity);
 					ps1.setDouble(7, drugCostAllowed);
-					ps1.setDouble(8, prodSel);				
+					ps1.setDouble(8, prodSel);
+					
 					ps1.setString(9,intervention1);
 					ps1.setString(10,intervention2);
 					ps1.setString(11,intervention3);
@@ -248,8 +243,16 @@ public class RebateEngineSpark {
 					
 					ps1.executeUpdate();
 					
-					temp01.add(row); */
+					temp01.add(row);
 				}
+
+				temp01DS = temp01DS.withColumn("DT_OF_SERV",col("DT_OF_SERV").cast("date"));					
+				temp01DS.sparkSession().sql(sparkSql);
+				temp01DS = temp01DS.select(col("CLAIM_ID"),col("DIN_PIN"),col("PROF_FEE_ALLD"),col("ADJUDICATION_DT"),col("DT_OF_SERV"),col("QTY"),col("DRG_CST_ALLD"),
+						col("PROD_SEL"),col("INTERVENTION_1"),col("INTERVENTION_2"),col("INTERVENTION_3"),col("INTERVENTION_4"),col("INTERVENTION_5"),col("INTERVENTION_6"),col("INTERVENTION_7"),
+						col("INTERVENTION_8"),col("INTERVENTION_9"),col("INTERVENTION_10"));
+				temp01DS.show();
+				
 			}
 		}catch(Exception e){
 			e.printStackTrace();
@@ -267,7 +270,7 @@ public class RebateEngineSpark {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<RebateVO> step2CreateTemp03(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step2CreateTemp03(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp03 = new ArrayList<RebateVO>();
 		String firstPriceDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.FIRST_PRICE_DATE);	//OCT-23-2006
@@ -281,6 +284,9 @@ public class RebateEngineSpark {
 		PreparedStatement ps1 = null;
 		ResultSet rs = null;
 		ResultSet rs1 = null;
+		Dataset<org.apache.spark.sql.Row> temp03DS = spark.read()
+				  .jdbc(PropertyConfig.getProperty("app.config.db.dbUrl2"),"DRUG", connectionProperties);
+		temp03DS.createOrReplaceTempView("DRUG");	
 
 		try{
 			String sql1 = "TRUNCATE TABLE TEMP03";
@@ -314,6 +320,13 @@ public class RebateEngineSpark {
 							     "Trunc(REC_EFF_DT) = to_Date('" + eDate + "','YYYY-MM-DD') AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT) r " +
 							"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and  d.REC_CREATE_TIMESTAMP = r.REC_CREATE_TIME";
 						
+						String sparkSql = "select d.INDIVIDUAL_PRICE AS FIRST_PRICE, d.DIN_DESC, d.REC_EFF_DT,d.REC_CREATE_TIMESTAMP, r.REC_CREATE_TIME,d.DIN_PIN from ( " +
+							     "select DIN_PIN,REC_EFF_DT,MAX(REC_CREATE_TIMESTAMP) as REC_CREATE_TIME from DRUG where MANUFACTURER_CD ='" + manufacturerCode + "' AND " +
+							     "date_sub(REC_EFF_DT,0) = to_Date('" + eDate + "','YYYY-MM-DD') AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT) r " +
+							"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and  d.REC_CREATE_TIMESTAMP = r.REC_CREATE_TIME";
+						// maybe spark sql does not support alias as "run sql on directly", try to do df.alias tomorrow 
+						
+						
 						/*
 						sql = "select d.INDIVIDUAL_PRICE AS FIRST_PRICE, d.DIN_DESC, d.REC_EFF_DT,d.REC_CREATE_TIMESTAMP, r.REC_CREATE_TIME,d.DIN_PIN from ( " +
 							     "select DIN_PIN,REC_EFF_DT,MAX(REC_CREATE_TIMESTAMP) as REC_CREATE_TIME from DRUG where MANUFACTURER_CD ='" + manufacturerCode + "' AND " +
@@ -322,6 +335,8 @@ public class RebateEngineSpark {
 							*/
 						ps = conn.prepareStatement(sql);
 						rs1 = ps.executeQuery();
+						temp03DS.sparkSession().sql(sparkSql);
+						temp03DS.show();
 						if(rs1 != null){
 							while(rs1.next()){
 								row = new RebateVO();
@@ -337,9 +352,9 @@ public class RebateEngineSpark {
 								row.setRecEffDt(effectiveDate);
 								row.setRecCreateTimestamp(rs1.getDate("REC_CREATE_TIMESTAMP"));
 								row.setManufacturerCd(manufacturerCd);
-								dinMap.put(din, row);
-							}
-						}
+								dinMap.put(din, row);	
+							}						
+						}						
 					}else{
 						dinMap.put(din, row);
 					}
@@ -374,11 +389,14 @@ public class RebateEngineSpark {
 						ps1.setDate(4, new java.sql.Date(vo.getRecEffDt().getTime()));
 						ps1.setDate(5, new java.sql.Date(vo.getRecCreateTimestamp().getTime()));
 						ps1.setString(6, vo.getManufacturerCd());
+						
+						
 					//}
 					int updateRow = ps1.executeUpdate();
 					//ps1.addBatch();
 					temp03.add(vo);
 				}
+						
 				//ps1.executeBatch();
 				
 			}
@@ -399,7 +417,7 @@ public class RebateEngineSpark {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<RebateVO> step3CreateTemp02(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step3CreateTemp02(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp02 = new ArrayList<RebateVO>();
 		String secondPriceDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.SECOND_PRICE_DATE);	//OCT-23-2015
@@ -414,6 +432,9 @@ public class RebateEngineSpark {
 		PreparedStatement ps1 = null;
 		ResultSet rs = null;
 		ResultSet rs1 = null;
+		Dataset<org.apache.spark.sql.Row> drugDS = spark.read()
+				  .jdbc(PropertyConfig.getProperty("app.config.db.dbUrl2"),"DRUG", connectionProperties);
+		drugDS.createOrReplaceTempView("DRUG");	
 
 		try{
 			String sql1 = "TRUNCATE TABLE TEMP02";
@@ -446,6 +467,11 @@ public class RebateEngineSpark {
 							     "select DIN_PIN,REC_EFF_DT,MAX(REC_CREATE_TIMESTAMP) as REC_CREATE_TIME from DRUG where MANUFACTURER_CD ='" + manufacturerCode + "' AND " +
 							     "Trunc(REC_EFF_DT) = to_Date('" + effectiveDate.toString() + "','YYYY-MM-DD') AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT) r " +
 							"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and  d.REC_CREATE_TIMESTAMP = r.REC_CREATE_TIME";
+						String sparkSql = "select d.INDIVIDUAL_PRICE AS SECOND_PRICE, d.DIN_DESC, d.REC_EFF_DT,d.REC_CREATE_TIMESTAMP, r.REC_CREATE_TIME,d.DIN_PIN from ( " +
+							     "select DIN_PIN,REC_EFF_DT,MAX(REC_CREATE_TIMESTAMP) as REC_CREATE_TIME from DRUG where MANUFACTURER_CD ='" + manufacturerCode + "' AND " +
+							     "date_sub(REC_EFF_DT,0) = to_Date('" + effectiveDate.toString() + "','YYYY-MM-DD') AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT) r " +
+							"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and  d.REC_CREATE_TIMESTAMP = r.REC_CREATE_TIME";
+
 
 						ps1 = conn.prepareStatement(sql2);
 						rs1 = ps1.executeQuery();
@@ -465,7 +491,9 @@ public class RebateEngineSpark {
 								row.setRecCreateTimestamp(rs1.getDate("REC_CREATE_TIMESTAMP"));
 								row.setManufacturerCd(manufacturerCode);
 								dinMap.put(din, row);
+								drugDS.sparkSession().sql(sparkSql);
 							}
+							drugDS.show();
 						}
 					}else{
 						dinMap.put(din, row);
@@ -525,7 +553,7 @@ public class RebateEngineSpark {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<RebateVO> step4CreateTemp99(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step4CreateTemp99(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp99 = new ArrayList<RebateVO>();
 		String yyyyPriceDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.YYYY_PRICE_DATE);	//???
@@ -534,11 +562,15 @@ public class RebateEngineSpark {
 			     "select DIN_PIN,MAX(REC_EFF_DT) as REC_EFF_DATE from DRUG where MANUFACTURER_CD = '" + manufacturerCode+ "' AND " +
 			     "REC_EFF_DT < to_date('" + yyyyPriceDate + "','MM-DD-YYYY') AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN) r " +
 			"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and d.REC_EFF_DT = r.REC_EFF_DATE";
-
+		
 		PreparedStatement ps = null;
 		ResultSet rs = null;
 		PreparedStatement ps1 = null;
 		ResultSet rs1 = null;
+		
+		Dataset<org.apache.spark.sql.Row> drugDS = spark.read()
+				  .jdbc(PropertyConfig.getProperty("app.config.db.dbUrl2"),"DRUG", connectionProperties);
+		drugDS.createOrReplaceTempView("DRUG");	
 
 		try{
 			String sql1 = "TRUNCATE TABLE TEMP99";
@@ -569,6 +601,10 @@ public class RebateEngineSpark {
 							     "select DIN_PIN,REC_EFF_DT,MAX(REC_CREATE_TIMESTAMP) as REC_CREATE_TIME from DRUG where MANUFACTURER_CD ='" + manufacturerCode + "' AND " +
 							     "Trunc(REC_EFF_DT) = to_Date('" + effectiveDate.toString() + "','YYYY-MM-DD') AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT) r " +
 							     "inner join DRUG d on d.DIN_PIN = r.DIN_PIN and  d.REC_CREATE_TIMESTAMP = r.REC_CREATE_TIME";
+						String sparkSql = "select d.INDIVIDUAL_PRICE AS YYYY_PRICE, d.DIN_DESC, d.REC_EFF_DT, r.REC_CREATE_TIME,d.DIN_PIN from ( " +
+							     "select DIN_PIN,REC_EFF_DT,MAX(REC_CREATE_TIMESTAMP) as REC_CREATE_TIME from DRUG where MANUFACTURER_CD ='" + manufacturerCode + "' AND " +
+							     "date_sub(REC_EFF_DT,0) = to_Date('" + effectiveDate.toString() + "','YYYY-MM-DD') AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT) r " +
+							     "inner join DRUG d on d.DIN_PIN = r.DIN_PIN and  d.REC_CREATE_TIMESTAMP = r.REC_CREATE_TIME";
 						ps1 = conn.prepareStatement(sql2);
 						rs1 = ps1.executeQuery();
 						if(rs1 != null){
@@ -586,7 +622,9 @@ public class RebateEngineSpark {
 								row.setRecEffDt(effectiveDate);
 								row.setManufacturerCd(manufacturerCode);
 								dinMap.put(din, row);
+								drugDS.sparkSession().sql(sparkSql);
 							}
+							drugDS.show();
 						}
 					}else{
 						dinMap.put(din, row);
@@ -640,7 +678,7 @@ public class RebateEngineSpark {
 		return temp99;
 	}
 
-	public List<RebateVO> step5Join2To4TogetherTemp02(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step5Join2To4TogetherTemp02(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp02 = new ArrayList<RebateVO>();
 		String sql = "select a.DIN_PIN,a.DIN_DESC, b.FIRST_PRICE, a.SECOND_PRICE, c.YYYY_PRICE, a.REC_EFF_DT,a.REC_CREATE_TIMESTAMP,b.MANUFACTURER_CD from TEMP02 a " +
@@ -697,7 +735,7 @@ public class RebateEngineSpark {
 		return temp02;
 	}
 	
-	public List<RebateVO> step6And7DefineMissingDBTemp02(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step6And7DefineMissingDBTemp02(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp02 = new ArrayList<RebateVO>();
 		String sql = "select * from TEMP02";
@@ -755,7 +793,7 @@ public class RebateEngineSpark {
 	}
 	
 
-	public List<RebateVO> step8CreateTemp04(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step8CreateTemp04(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp04 = new ArrayList<RebateVO>();
 		PreparedStatement ps = null;
@@ -784,7 +822,7 @@ public class RebateEngineSpark {
 		return temp04;
 	}
 
-	public List<RebateVO> step9CreateTemp05(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step9CreateTemp05(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp05 = new ArrayList<RebateVO>();
 		PreparedStatement ps = null;
@@ -819,7 +857,7 @@ public class RebateEngineSpark {
 		return temp05;
 	}
 
-	public List<RebateVO> step10CreateTemp06(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step10CreateTemp06(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp06 = new ArrayList<RebateVO>();
 		PreparedStatement ps = null;
@@ -854,7 +892,7 @@ public class RebateEngineSpark {
 		return temp06;
 	}
 	
-	public List<RebateVO> step11To13CreateTemp07(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step11To13CreateTemp07(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp07 = new ArrayList<RebateVO>();
 		
@@ -922,7 +960,7 @@ public class RebateEngineSpark {
 		return temp07;
 	}
 	
-	public List<RebateVO> step14CreateTemp08(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step14CreateTemp08(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp08 = new ArrayList<RebateVO>();
 		//I think it is done in step 11 to 13;
@@ -936,7 +974,7 @@ public class RebateEngineSpark {
 	 * 
 	 * Calculate Volume discount
 	 */
-	public List<RebateVO> step15CalculateVolumeDiscountTemp08(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step15CalculateVolumeDiscountTemp08(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp08 = new ArrayList<RebateVO>();
 		
@@ -1055,7 +1093,7 @@ public class RebateEngineSpark {
 	 * @throws Exception
 	 *
 	 */
-	public List<RebateVO> step16And17CreateTemp09(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step16And17CreateTemp09(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp09 = new ArrayList<RebateVO>();
 		
@@ -1098,7 +1136,7 @@ public class RebateEngineSpark {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<RebateVO> step17CreateSummaryFileTemp10(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step17CreateSummaryFileTemp10(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp10 = new ArrayList<RebateVO>();
 		//completed in step 16 already.
@@ -1114,7 +1152,7 @@ public class RebateEngineSpark {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<RebateVO> step18And19CreateSummaryFileTemp11(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step18And19CreateSummaryFileTemp11(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp11 = new ArrayList<RebateVO>();
 		PreparedStatement ps = null;
@@ -1189,7 +1227,7 @@ public class RebateEngineSpark {
 	 * @return
 	 * @throws Exception
 	 */
-	public void step20And21CreateSummaryFileFromTemp11(String manufacturerCode,  Connection conn, String path) throws Exception{// here din is "02418401" for the example
+	public void step20And21CreateSummaryFileFromTemp11(String manufacturerCode,  Connection conn, String path, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
 		
 		File file = new File(path); 
 		if(!file.exists()){

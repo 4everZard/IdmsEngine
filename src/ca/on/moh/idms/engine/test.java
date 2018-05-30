@@ -76,21 +76,21 @@ public class test {
 		
 		System.out.println("==========================TEMP01===============================");	
 		temp01DS = temp01DS.withColumn("DT_OF_SERV",col("DT_OF_SERV").cast("date"));
-		temp01DS.printSchema();
-		temp01DS.sparkSession().sql(sql1);
-		temp01DS.show();
-		temp01DS.printSchema();
+		//temp01DS.printSchema();
+		//temp01DS.sparkSession().sql(sql1);
+		//temp01DS.show();
+		//temp01DS.printSchema();
 		
-		/*jdbcDF.select(col("DIN_PIN"),col("DT_OF_SERV"),col("ADJUDICATION_DT"),col("PROF_FEE_ALLD"),col("QTY"),col("DRG_CST_ALLD"),col("PROG_ID"),col("PROD_SEL"),
+		temp01DS = temp01DS.select(col("DIN_PIN"),col("DT_OF_SERV"),col("ADJUDICATION_DT"),col("PROF_FEE_ALLD"),col("QTY"),col("DRG_CST_ALLD"),col("PROG_ID"),col("PROD_SEL"),
 				  col("INTERVENTION_1"),col("INTERVENTION_2"),col("INTERVENTION_3"),col("INTERVENTION_4"),col("INTERVENTION_5"),col("INTERVENTION_6"),
 				  col("INTERVENTION_7"),col("INTERVENTION_8"),col("INTERVENTION_9"),col("INTERVENTION_10"))
 				  .filter(col("CURR_STAT").equalTo("P"))
 				  .filter(col("PROG_ID").notEqual("TP"))
 				  .withColumn("DT_OF_SERV",col("DT_OF_SERV").cast("string"))
 				  .filter(col("DT_OF_SERV").between(historyStartDate, historyEndDate))
-				  .join(scheduleADF, jdbcDF.col("DIN_PIN").equalTo(scheduleADF.col("DIN_PIN")),"left_semi").show();*/
-				  
-		System.out.println("==========================TEMP03===============================");
+				  .join(scheduleADS, temp01DS.col("DIN_PIN").equalTo(scheduleADS.col("DIN_PIN")),"left_semi");
+		temp01DS.show();
+	/*	System.out.println("==========================TEMP03===============================");
 		
 		Dataset<Row> temp03DS = spark.read()
 				  .jdbc(ORACLEDB_URL,"DRUG", connectionProperties);
@@ -113,7 +113,7 @@ public class test {
 		DRUGDS.sparkSession().sql(sql2);
 		DRUGDS.show();
 		DRUGDS.printSchema();
-		
+		*/
 
 	}
 

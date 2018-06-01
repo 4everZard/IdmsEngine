@@ -45,6 +45,7 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.sources.IsNull;
 
 import static org.apache.spark.sql.functions.*;
+
 import ca.on.moh.idms.util.RebateConstant;
 import ca.on.moh.idms.util.RebateCalculatorCache;
 import ca.on.moh.idms.util.RebateConstant;
@@ -63,6 +64,7 @@ public class RebateEngineSpark {
 		      .config("spark.some.config.option", "some-value")
 		      .master("local[1]")
 		      .getOrCreate();
+	
 	
 	public static void main (String [] args) throws Exception {
 		System.out.println("Calculation engine started ...... ");
@@ -301,7 +303,7 @@ public class RebateEngineSpark {
 		temp03DS.createOrReplaceTempView("DRUG");	
 		temp03DS = temp03DS.withColumn("REC_EFF_DT",date_format(col("REC_EFF_DT"),"yyyy-MM-dd"));   // convert timestamp to string
 		temp03DS = temp03DS.withColumn("REC_EFF_DT",to_date(col("REC_EFF_DT"),"yyyy-MM-dd"));       // convert string to date
-		
+		//temp03DS = temp03DS.select(col("INDIVIDUAL_PRICE"),col("DIN_DESC"),col("REC_EFF_DT"),col("REC_CREATE_TIMESTAMP"),col("REC_CREATE_TIMESTAMP"),col("DIN_PIN"));
 			
 		try{
 			String sql1 = "TRUNCATE TABLE TEMP03";
@@ -311,6 +313,15 @@ public class RebateEngineSpark {
 			
 			ps = conn.prepareStatement(sql);
 			rs = ps.executeQuery();
+			
+		/*	Dataset<org.apache.spark.sql.Row> unionTemp03DS = temp03DS.select(col("INDIVIDUAL_PRICE")).as("FIRST_PRICE")
+												                      .select(col("DIN_DESC"))
+												                      .select(max(col("REC_EFF_DT"))).as("REC_EFF_DATE")
+												                      .select(col("REC_CREATE_TIMESTAMP"))
+												                      .select(col("DIN_DESC"))
+												                      .select(col("DIN_DESC"));*/
+			Dataset<org.apache.spark.sql.Row> unionTemp03DS = null;
+					 
 			if(rs != null){
 				dinMap = new HashMap<String, RebateVO>();
 				while(rs.next()){
@@ -320,6 +331,8 @@ public class RebateEngineSpark {
 					String brandName = rs.getString("DIN_DESC");
 					Date effectiveDate = rs.getDate("REC_EFF_DATE");
 					
+					
+					
 					String manufacturerCd =  rs.getString("MANUFACTURER_CD");
 					row.setDinDesc(brandName);
 					row.setManufacturerCd(manufacturerCode);
@@ -327,18 +340,25 @@ public class RebateEngineSpark {
 					row.setFirstPrice(firstPrice);
 					row.setRecEffDt(effectiveDate);
 					row.setRecCreateTimestamp(rs.getDate("REC_CREATE_TIMESTAMP"));
+					String sparkSql = "select d.INDIVIDUAL_PRICE AS FIRST_PRICE, d.DIN_DESC, d.REC_EFF_DT,d.REC_CREATE_TIMESTAMP, r.REC_CREATE_TIME,d.DIN_PIN from ( " +
+						     "select DIN_PIN,REC_EFF_DT,MAX(REC_CREATE_TIMESTAMP) as REC_CREATE_TIME from DRUG where MANUFACTURER_CD ='" + manufacturerCode + "' AND " +
+						     "REC_EFF_DT = '" + effectiveDate + "' AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT) r " +
+						"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and  d.REC_CREATE_TIMESTAMP = r.REC_CREATE_TIME";
+					
+					temp03DS = temp03DS.sparkSession().sql(sparkSql);
+					//unionTemp03DS = temp03DS;
+					//unionTemp03DS.show();		
+					unionTemp03DS = unionTemp03DS.union(temp03DS);
 					
 					if(dinMap.containsKey(din)){
 						//String eDate = format.format(new Date(effectiveDate.getTime()));
 						String eDate = effectiveDate.toString();
-						System.out.println(eDate);
+						
 						sql = "select d.INDIVIDUAL_PRICE AS FIRST_PRICE, d.DIN_DESC, d.REC_EFF_DT,d.REC_CREATE_TIMESTAMP, r.REC_CREATE_TIME,d.DIN_PIN from ( " +
 							     "select DIN_PIN,REC_EFF_DT,MAX(REC_CREATE_TIMESTAMP) as REC_CREATE_TIME from DRUG where MANUFACTURER_CD ='" + manufacturerCode + "' AND " +
 							     "Trunc(REC_EFF_DT) = to_Date('" + eDate + "','YYYY-MM-DD') AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT) r " +
 							"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and  d.REC_CREATE_TIMESTAMP = r.REC_CREATE_TIME";
-						
-						
-							
+								
 						ps = conn.prepareStatement(sql);
 						rs1 = ps.executeQuery();
 						
@@ -346,6 +366,7 @@ public class RebateEngineSpark {
 							     "REC_EFF_DT = '" + effectiveDate + "' AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT ";*/
 						
 						
+					
 						
 						//temp03DS = temp03DS.select(col("DIN_PIN"),col("DIN_DESC"),col("FIRST_PRICE"),col("REC_EFF_DT"),col("REC_CREATE_TIMESTAMP"),col("MANUFACTURER_CD"));					
 						if(rs1 != null){
@@ -364,23 +385,17 @@ public class RebateEngineSpark {
 								row.setRecCreateTimestamp(rs1.getDate("REC_CREATE_TIMESTAMP"));
 								row.setManufacturerCd(manufacturerCd);
 								dinMap.put(din, row);	
-								
-								
-								
-								String sparkSql = "select d.INDIVIDUAL_PRICE AS FIRST_PRICE, d.DIN_DESC, d.REC_EFF_DT,d.REC_CREATE_TIMESTAMP, r.REC_CREATE_TIME,d.DIN_PIN from ( " +
-									     "select DIN_PIN,REC_EFF_DT,MAX(REC_CREATE_TIMESTAMP) as REC_CREATE_TIME from DRUG where MANUFACTURER_CD ='" + manufacturerCode + "' AND " +
-									     "REC_EFF_DT = '" + effectiveDate + "' AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT) r " +
-									"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and  d.REC_CREATE_TIMESTAMP = r.REC_CREATE_TIME";
-								temp03DS = temp03DS.sparkSession().sql(sparkSql);
 							}						
 						}						
 					}else{
 						dinMap.put(din, row);
 					}
+					
 				}
 				System.out.println("===================================================TEMP03=======================================");
-				temp03DS.printSchema();
-				temp03DS.show();
+				unionTemp03DS.printSchema();
+				unionTemp03DS.show();
+					
 				
 				Set<String> allKeys = dinMap.keySet();
 				Iterator<String> keys = allKeys.iterator();
@@ -418,7 +433,7 @@ public class RebateEngineSpark {
 					//ps1.addBatch();
 					temp03.add(vo);
 				}
-						
+				
 				//ps1.executeBatch();
 				
 			}

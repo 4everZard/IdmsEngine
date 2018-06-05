@@ -1,10 +1,5 @@
 package ca.on.moh.idms.engine;
 
-import static org.apache.spark.sql.functions.col;
-import static org.apache.spark.sql.functions.date_format;
-import static org.apache.spark.sql.functions.to_date;
-import static org.apache.spark.sql.functions.explode_outer;
-import static org.apache.spark.sql.functions.explode;
 import gov.moh.app.db.DBConnectionManager;
 import gov.moh.config.ConfigFromDB;
 import gov.moh.config.PropertyConfig;
@@ -37,11 +32,10 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
-import org.apache.spark.sql.functions;
-import org.apache.spark.sql.Column;
-
 import ca.on.moh.idms.util.RebateCalculatorCache;
 import ca.on.moh.idms.util.RebateConstant;
+import ca.on.moh.idms.util.RebateUtil;
+
 import ca.on.moh.idms.vo.RebateVO;
 
 public class RebateEngineSpark {
@@ -56,7 +50,9 @@ public class RebateEngineSpark {
 		      .appName("Java Spark SQL data sources example")
 		      .config("spark.some.config.option", "some-value")
 		      .master("local[1]")
+		      
 		      .getOrCreate();
+	
 	
 	
 	public static void main (String [] args) throws Exception {
@@ -125,10 +121,7 @@ public class RebateEngineSpark {
 		
 		String historyStartDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.HISTORY_START_DATE);	//JUN 29 2015
 		String historyEndDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.HISTORY_END_DATE);	//JUN 30 2015
-		/*java.util.Date historyStartDate1 = sdf1.parse(historyStartDate);
-		java.sql.Date sparkHistoryStartDate = new java.sql.Date(historyStartDate1.getTime());
-		java.util.Date historyEndDate1 = sdf1.parse(historyEndDate);
-		java.sql.Date sparkHistoryEndDate = new java.sql.Date(historyEndDate1.getTime());*/
+		
 		
 		String sql = "select DIN_PIN,DT_OF_SERV, ADJUDICATION_DT, PROF_FEE_ALLD,QTY,DRG_CST_ALLD,PROG_ID,PROD_SEL, INTERVENTION_1, " +
 				"INTERVENTION_2, INTERVENTION_3, INTERVENTION_4, INTERVENTION_5, INTERVENTION_6, INTERVENTION_7, INTERVENTION_8, INTERVENTION_9, INTERVENTION_10 " +
@@ -140,8 +133,31 @@ public class RebateEngineSpark {
 		PreparedStatement ps = null;
 		PreparedStatement ps1 = null;
 		ResultSet rs = null;
+		StructType schemata = DataTypes.createStructType(
+		        new StructField[]{
+		        		DataTypes.createStructField("CLAIM_ID", DataTypes.IntegerType, true),
+		        		DataTypes.createStructField("DIN_PIN", DataTypes.StringType, true),
+		        		DataTypes.createStructField("PROF_FEE_ALLD", DataTypes.IntegerType, true),
+		        		DataTypes.createStructField("ADJUDICATION_DT", DataTypes.DateType, true),
+		        		DataTypes.createStructField("DT_OF_SERV", DataTypes.DateType, true),
+		        		DataTypes.createStructField("QTY", DataTypes.IntegerType, true),
+		        		DataTypes.createStructField("DRG_CST_ALLD", DataTypes.DoubleType, true),		        		
+		        		DataTypes.createStructField("PROD_SEL", DataTypes.DoubleType, true),
+		        		DataTypes.createStructField("INTERVENTION_1", DataTypes.StringType, true),
+		        		DataTypes.createStructField("INTERVENTION_2", DataTypes.StringType, true),
+		        		DataTypes.createStructField("INTERVENTION_3", DataTypes.StringType, true),
+		        		DataTypes.createStructField("INTERVENTION_4", DataTypes.StringType, true),
+		        		DataTypes.createStructField("INTERVENTION_5", DataTypes.StringType, true),
+		        		DataTypes.createStructField("INTERVENTION_6", DataTypes.StringType, true),
+		        		DataTypes.createStructField("INTERVENTION_7", DataTypes.StringType, true),
+		        		DataTypes.createStructField("INTERVENTION_8", DataTypes.StringType, true),
+		        		DataTypes.createStructField("INTERVENTION_9", DataTypes.StringType, true),
+		        		DataTypes.createStructField("INTERVENTION_10", DataTypes.StringType, true),
+		        });
+		List<org.apache.spark.sql.Row> rowList = new ArrayList<org.apache.spark.sql.Row>();
+		Dataset<org.apache.spark.sql.Row> temp01DS = spark.createDataFrame(rowList, schemata);
 		
-		Dataset<org.apache.spark.sql.Row> temp01DS = spark.read()
+		/*Dataset<org.apache.spark.sql.Row> temp01DS = spark.read()
 				  .jdbc(PropertyConfig.getProperty("app.config.db.dbUrl2"),"CLMHIST", connectionProperties);
 		temp01DS.createOrReplaceTempView("CLMHIST");      // Register the DataFrame as a SQL temporary view
 		Dataset<org.apache.spark.sql.Row> scheduleADS = spark.read()
@@ -157,7 +173,7 @@ public class RebateEngineSpark {
 				  col("INTERVENTION_1"),col("INTERVENTION_2"),col("INTERVENTION_3"),col("INTERVENTION_4"),col("INTERVENTION_5"),col("INTERVENTION_6"),
 				  col("INTERVENTION_7"),col("INTERVENTION_8"),col("INTERVENTION_9"),col("INTERVENTION_10"));
 		temp01DS.printSchema();
-		temp01DS.show();
+		temp01DS.show();*/
 		
 		/*temp01DS = temp01DS.withColumn("DT_OF_SERV",col("DT_OF_SERV").cast("date"));*/					
 		
@@ -259,9 +275,18 @@ public class RebateEngineSpark {
 					ps1.executeUpdate();
 					
 					temp01.add(row);
+					
+					org.apache.spark.sql.Row apacheRow =  RowFactory.create(key-1, din, profFeeAlld, adjudicationDate, dateOfServ, quantity, drugCostAllowed, prodSel
+														 ,intervention1, intervention2, intervention3, intervention4, intervention5, intervention6, intervention7
+														 , intervention8, intervention9, intervention10);
+					
+					rowList.add(apacheRow);
 				}
 
-				
+				System.out.println("===================================================TEMP01=======================================");
+				temp01DS = spark.createDataFrame(rowList, schemata);
+				RebateCalculatorCache.setSparkDatasetCache("temp01DS",temp01DS);
+				temp01DS.show();
 				
 			}
 		}catch(Exception e){
@@ -294,12 +319,20 @@ public class RebateEngineSpark {
 		PreparedStatement ps = null;
 		PreparedStatement ps1 = null;
 		ResultSet rs = null;
-		ResultSet rs1 = null;
-		Dataset<org.apache.spark.sql.Row> temp03DS = spark.read()
-				  .jdbc(PropertyConfig.getProperty("app.config.db.dbUrl2"),"DRUG", connectionProperties);
-		temp03DS.createOrReplaceTempView("DRUG");	
+		ResultSet rs1 = null;	
 		
-		//temp03DS = temp03DS.select(col("INDIVIDUAL_PRICE"),col("DIN_DESC"),col("REC_EFF_DT"),col("REC_CREATE_TIMESTAMP"),col("REC_CREATE_TIMESTAMP"),col("DIN_PIN"));
+		StructType schemata = DataTypes.createStructType(
+		        new StructField[]{
+		        		DataTypes.createStructField("DIN_PIN", DataTypes.StringType, false),
+		        		DataTypes.createStructField("DIN_DESC", DataTypes.StringType, false),
+		        		DataTypes.createStructField("FIRST_PRICE", DataTypes.DoubleType, false),
+		        		DataTypes.createStructField("REC_EFF_DT", DataTypes.DateType, false),
+		        		DataTypes.createStructField("REC_CREATE_TIMESTAMP", DataTypes.DateType, false),
+		        		DataTypes.createStructField("MANUFACTURER_CD", DataTypes.StringType, false),
+		        });
+		List<org.apache.spark.sql.Row> rowList = new ArrayList<org.apache.spark.sql.Row>();
+		Dataset<org.apache.spark.sql.Row> temp03DS = spark.createDataFrame(rowList, schemata);
+		
 			
 		try{
 			String sql1 = "TRUNCATE TABLE TEMP03";
@@ -402,16 +435,6 @@ public class RebateEngineSpark {
 				temp03DS.show();*/
 				
 				
-				StructType schemata = DataTypes.createStructType(
-				        new StructField[]{
-				        		DataTypes.createStructField("DIN_PIN", DataTypes.StringType, false),
-				        		DataTypes.createStructField("DIN_DESC", DataTypes.StringType, false),
-				        		DataTypes.createStructField("FIRST_PRICE", DataTypes.DoubleType, false),
-				        		DataTypes.createStructField("REC_EFF_DT", DataTypes.DateType, false),
-				        		DataTypes.createStructField("REC_CREATE_TIMESTAMP", DataTypes.DateType, false),
-				        		DataTypes.createStructField("MANUFACTURER_CD", DataTypes.StringType, false),
-				        });
-				List<org.apache.spark.sql.Row> rowList = new ArrayList<org.apache.spark.sql.Row>();
 				
 				
 				Set<String> allKeys = dinMap.keySet();
@@ -455,8 +478,9 @@ public class RebateEngineSpark {
 					temp03.add(vo);
 				}
 				System.out.println("===================================================TEMP03=======================================");
-				Dataset<org.apache.spark.sql.Row> data = spark.createDataFrame(rowList, schemata);
-				data.show();
+				temp03DS = spark.createDataFrame(rowList, schemata);
+				RebateCalculatorCache.setSparkDatasetCache("temp03DS",temp03DS);
+				temp03DS.show();
 				
 				//ps1.executeBatch();
 				
@@ -493,10 +517,19 @@ public class RebateEngineSpark {
 		PreparedStatement ps1 = null;
 		ResultSet rs = null;
 		ResultSet rs1 = null;
-		Dataset<org.apache.spark.sql.Row> drugDS = spark.read()
-				  .jdbc(PropertyConfig.getProperty("app.config.db.dbUrl2"),"DRUG", connectionProperties);
-		drugDS.createOrReplaceTempView("DRUG");	
-
+		
+		
+		StructType schemata = DataTypes.createStructType(
+		        new StructField[]{
+		        		DataTypes.createStructField("DIN_PIN", DataTypes.StringType, false),
+		        		DataTypes.createStructField("DIN_DESC", DataTypes.StringType, false),
+		        		DataTypes.createStructField("SECOND_PRICE", DataTypes.DoubleType, false),
+		        		DataTypes.createStructField("REC_EFF_DT", DataTypes.DateType, false),
+		        		DataTypes.createStructField("REC_CREATE_TIMESTAMP", DataTypes.DateType, false),
+		        		DataTypes.createStructField("MANUFACTURER_CD", DataTypes.StringType, false),
+		        });
+		List<org.apache.spark.sql.Row> rowList = new ArrayList<org.apache.spark.sql.Row>();
+		Dataset<org.apache.spark.sql.Row> temp02DS = spark.createDataFrame(rowList, schemata);
 		try{
 			String sql1 = "TRUNCATE TABLE TEMP02";
 			ps =  conn.prepareStatement(sql1);
@@ -552,7 +585,7 @@ public class RebateEngineSpark {
 								row.setRecCreateTimestamp(rs1.getDate("REC_CREATE_TIMESTAMP"));
 								row.setManufacturerCd(manufacturerCode);
 								dinMap.put(din, row);
-								drugDS.sparkSession().sql(sparkSql);
+								
 							}
 							//drugDS.show();
 						}
@@ -567,17 +600,7 @@ public class RebateEngineSpark {
 				Set<String> allKeys = dinMap.keySet();
 				Iterator<String> keys = allKeys.iterator();
 				
-				StructType schemata = DataTypes.createStructType(
-				        new StructField[]{
-				        		DataTypes.createStructField("DIN_PIN", DataTypes.StringType, false),
-				        		DataTypes.createStructField("DIN_DESC", DataTypes.StringType, false),
-				        		DataTypes.createStructField("SECOND_PRICE", DataTypes.DoubleType, false),
-				        		DataTypes.createStructField("REC_EFF_DT", DataTypes.DateType, false),
-				        		DataTypes.createStructField("REC_CREATE_TIMESTAMP", DataTypes.DateType, false),
-				        		DataTypes.createStructField("MANUFACTURER_CD", DataTypes.StringType, false),
-				        });
-				List<org.apache.spark.sql.Row> rowList = new ArrayList<org.apache.spark.sql.Row>();
-				
+			
 				while(keys.hasNext()){
 					String din = keys.next();
 					RebateVO vo = (RebateVO)dinMap.get(din);
@@ -611,8 +634,9 @@ public class RebateEngineSpark {
 				}
 				//ps1.executeBatch();
 				System.out.println("===================================================TEMP02=======================================");
-				Dataset<org.apache.spark.sql.Row> data = spark.createDataFrame(rowList, schemata);
-				data.show();
+				temp02DS = spark.createDataFrame(rowList, schemata);
+				RebateCalculatorCache.setSparkDatasetCache("temp02DS",temp02DS);
+				temp02DS.show();
 			}
 		}catch(Exception e){
 			e.printStackTrace();
@@ -647,11 +671,23 @@ public class RebateEngineSpark {
 		PreparedStatement ps1 = null;
 		ResultSet rs1 = null;
 		
-		Dataset<org.apache.spark.sql.Row> drugDS = spark.read()
-				  .jdbc(PropertyConfig.getProperty("app.config.db.dbUrl2"),"DRUG", connectionProperties);
-		drugDS.createOrReplaceTempView("DRUG");	
+		StructType schemata = DataTypes.createStructType(
+		        new StructField[]{
+		        		DataTypes.createStructField("DIN_PIN", DataTypes.StringType, false),
+		        		DataTypes.createStructField("DIN_DESC", DataTypes.StringType, false),
+		        		DataTypes.createStructField("YYYY_PRICE", DataTypes.DoubleType, false),
+		        		DataTypes.createStructField("REC_EFF_DT", DataTypes.DateType, false),
+		        		DataTypes.createStructField("REC_CREATE_TIMESTAMP", DataTypes.StringType, true),
+		        		DataTypes.createStructField("MANUFACTURER_CD", DataTypes.StringType, false),
+		        });
+		List<org.apache.spark.sql.Row> rowList = new ArrayList<org.apache.spark.sql.Row>();
+		Dataset<org.apache.spark.sql.Row> temp99DS = spark.createDataFrame(rowList, schemata);
+
+		
 
 		try{
+			
+			
 			String sql1 = "TRUNCATE TABLE TEMP99";
 			ps =  conn.prepareStatement(sql1);
 			ps.executeUpdate();
@@ -714,16 +750,6 @@ public class RebateEngineSpark {
 				Set<String> allKeys = dinMap.keySet();
 				Iterator<String> keys = allKeys.iterator();
 				
-				StructType schemata = DataTypes.createStructType(
-				        new StructField[]{
-				        		DataTypes.createStructField("DIN_PIN", DataTypes.StringType, false),
-				        		DataTypes.createStructField("DIN_DESC", DataTypes.StringType, false),
-				        		DataTypes.createStructField("YYYY_PRICE", DataTypes.DoubleType, false),
-				        		DataTypes.createStructField("REC_EFF_DT", DataTypes.DateType, false),
-				        		DataTypes.createStructField("REC_CREATE_TIMESTAMP", DataTypes.DateType, false),
-				        		DataTypes.createStructField("MANUFACTURER_CD", DataTypes.StringType, false),
-				        });
-				List<org.apache.spark.sql.Row> rowList = new ArrayList<org.apache.spark.sql.Row>();
 				
 				while(keys.hasNext()){
 					String din = keys.next();
@@ -759,15 +785,9 @@ public class RebateEngineSpark {
 				}
 				//ps1.executeBatch();
 				System.out.println("===================================================TEMP99=======================================");
-				System.out.println(rowList);
-				Dataset<org.apache.spark.sql.Row> temp99DS = spark.createDataFrame(rowList, schemata);
-				temp99DS.printSchema();
-				//System.out.println(schemata);
-				temp99DS.withColumn("REC_CREATE_TIMESTAMP", explode(
-																	when(col("REC_CREATE_TIMESTAMP").isNotNull,col("REC_CREATE_TIMESTAMP"))
-																	.otherwise(array(lit).cast("string"))
-																		
-																		
+				temp99DS = spark.createDataFrame(rowList, schemata);
+				RebateCalculatorCache.setSparkDatasetCache("temp99DS",temp99DS);
+				temp99DS.show();																
 			}
 		}catch(Exception e){
 			e.printStackTrace();
@@ -793,7 +813,19 @@ public class RebateEngineSpark {
 		PreparedStatement ps2 = null;
 		ResultSet rs = null;
 		ResultSet rs1 = null;
-
+		Dataset<org.apache.spark.sql.Row> temp02DS = RebateCalculatorCache.getSparkDatasetCache("temp02DS");
+		Dataset<org.apache.spark.sql.Row> temp03DS = RebateCalculatorCache.getSparkDatasetCache("temp03DS");
+		Dataset<org.apache.spark.sql.Row> temp99DS = RebateCalculatorCache.getSparkDatasetCache("temp99DS");
+		Dataset<org.apache.spark.sql.Row> a = temp02DS.select("DIN_PIN","DIN_DESC","SECOND_PRICE","REC_EFF_DT","REC_CREATE_TIMESTAMP");
+		
+		
+		Dataset<org.apache.spark.sql.Row> b = temp03DS.select("FIRST_PRICE","MANUFACTURER_CD");
+		Dataset<org.apache.spark.sql.Row> c = temp99DS.select("YYYY_PRICE");
+		
+		
+		temp02DS = a.join(b,"full_outer").join(c,"full_outer");
+		temp02DS.show();
+		
 		try{
 			
 			ps = conn.prepareStatement(sql);

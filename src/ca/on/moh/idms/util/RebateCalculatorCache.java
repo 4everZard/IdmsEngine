@@ -12,6 +12,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
+
 import ca.on.moh.idms.vo.RebateVO;
 
 public class RebateCalculatorCache {
@@ -24,6 +27,7 @@ public class RebateCalculatorCache {
 	private static Map<String,List<String>> twoPriceDinListMap = new HashMap<>();
 	private static Map<String,List<String>> threePriceDinListMap = new HashMap<>();
 	
+	private static Map<String,Dataset<Row>> SparkDatasetCache = new HashMap<String,Dataset<Row>>();
 	
 	private static Map<String, Double> loadDbpLimitData(Connection conn, String manufacturerCode) throws Exception{
 		Map<String, Double> dbpLimiMap = allManufacturerDBPLimiMap.get(manufacturerCode);
@@ -181,5 +185,14 @@ public class RebateCalculatorCache {
 		}
 		return missingDataFromCheduleAMap;
 	}
+	
+	   public static void setSparkDatasetCache(String name,Dataset<Row> dataset){
+           SparkDatasetCache.put(name, dataset);
+     }
+     
+     public static Dataset<Row> getSparkDatasetCache(String name){
+           return SparkDatasetCache.get(name);
+     }
+
 
 }

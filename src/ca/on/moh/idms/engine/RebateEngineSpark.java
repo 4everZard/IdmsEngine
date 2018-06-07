@@ -2,6 +2,7 @@ package ca.on.moh.idms.engine;
 
 import gov.moh.app.db.DBConnectionManager;
 import gov.moh.config.ConfigFromDB;
+import gov.moh.config.ConfigPropertyName;
 import gov.moh.config.PropertyConfig;
 
 import java.io.File;
@@ -32,14 +33,25 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.DataFrameReader;
+import org.apache.spark.sql.functions;
+import static org.apache.spark.sql.functions.date_sub;
+import static org.apache.spark.sql.functions.date_trunc;
+import static org.apache.spark.sql.functions.date_format;
+import static org.apache.spark.sql.functions.to_date;
+import static org.apache.spark.sql.functions.trunc;
+import static org.apache.spark.sql.functions.col;
+import static org.apache.spark.sql.functions.max;
+
 import ca.on.moh.idms.util.RebateCalculatorCache;
 import ca.on.moh.idms.util.RebateConstant;
 import ca.on.moh.idms.util.RebateUtil;
-
+import ca.on.moh.idms.util.SparkDatabaseConnection;
 import ca.on.moh.idms.vo.RebateVO;
 
 public class RebateEngineSpark {
 
+	
 	private SimpleDateFormat format = new SimpleDateFormat("YYYY-MM-DD",new Locale("ca", "CA"));
 	private static Map<String, List<RebateVO>> dinDetails;
 	private List<String> twoPriceDinList;
@@ -52,9 +64,9 @@ public class RebateEngineSpark {
 		      .master("local[1]")
 		      
 		      .getOrCreate();
+
 	
-	
-	
+/*	
 	public static void main (String [] args) throws Exception {
 		System.out.println("Calculation engine started ...... ");
 		Logger.getLogger("org").setLevel(Level.ERROR);
@@ -64,10 +76,7 @@ public class RebateEngineSpark {
 		Connection conn1 = null;
 		Connection conn2 = null;
 		
-		Properties connectionProperties = new Properties();
-		connectionProperties.put("user",PropertyConfig.getProperty("app.config.db.username2"));
-		connectionProperties.put("password",PropertyConfig.getProperty("app.config.db.password2"));
-
+	
 		try{
 			long startTime = System.currentTimeMillis();
 			String username = PropertyConfig.getProperty("app.config.db.username2");
@@ -77,7 +86,7 @@ public class RebateEngineSpark {
 			conn2 = DBConnectionManager.getManager().getConnection(username,pwd,url);
 			
 			String filepathAndName = "C:\\TEMP\\IDMS\\data";
-			calculator.calculateRebate(manufacturerCode, conn1,conn2,filepathAndName,connectionProperties);
+			calculator.calculateRebate(manufacturerCode, conn1,conn2,filepathAndName);
 			
 			long endTime = System.currentTimeMillis();
 			long timeSpent = (endTime - startTime)/1000;
@@ -90,214 +99,298 @@ public class RebateEngineSpark {
 			DBConnectionManager.getManager().closeConnection(conn2, null, null);
 		}
 		System.out.println("Calculation Completed. ");
-	}
+	}*/
 	
-	public void calculateRebate(String manufacturerCode, Connection conn1, Connection conn2, String path, Properties connectionProperties ) throws Exception{
+    public static void main (String [] args) throws Exception {
+    	Logger.getLogger("org").setLevel(Level.ERROR);
+        System.out.println("Calculation engine started ...... ");
+        
+        PropertyConfig.setPropertyPath(appRoot + "\\conf\\system.properties");
+        System.setProperty("hadoop.home.dir", "C:\\Spark\\hadoop");
+        
+        RebateEngineSpark calculator = new RebateEngineSpark();
+        String manufacturerCode = "LEO";
+        
+        Connection conn1 = null;
+        Connection conn2 = null;
+        try{
+               long startTime = System.currentTimeMillis();
+               
+               String filepathAndName = "C:\\TEMP\\IDMS\\data";
+               calculator.step1(manufacturerCode);
+               calculator.step2(manufacturerCode);
+               calculator.step3(manufacturerCode);
+               calculator.step4(manufacturerCode);
+               calculator.step5(manufacturerCode);
+               long endTime = System.currentTimeMillis();
+               long timeSpent = (endTime - startTime)/1000;
+               System.out.println("Total Time: " + timeSpent);
+               
+        }catch(Exception e){
+               e.printStackTrace();
+        }finally{
+               DBConnectionManager.getManager().closeConnection(conn1, null, null);
+               DBConnectionManager.getManager().closeConnection(conn2, null, null);
+        }
+        System.out.println("Calculation Completed. ");
+  }
+
+  private static Dataset<org.apache.spark.sql.Row> getDataset(String sql) throws Exception{
+        SparkSession spark = SparkSession.builder().appName("IdmsEngine")//.enableHiveSupport()
+                        .config("spark.executor.memory","4g").master("local[1]").getOrCreate();
+
+        String userId = PropertyConfig.getProperty(ConfigPropertyName.USERNAME);
+        String pwd = PropertyConfig.getProperty(ConfigPropertyName.PASSWORD);
+        String url = PropertyConfig.getProperty(ConfigPropertyName.DB_URL);
+
+        Properties connectionProperties = new Properties();
+   connectionProperties.put("user",userId);
+   connectionProperties.put("password",pwd);
+
+        Dataset<org.apache.spark.sql.Row> dataset = spark.read().format("jdbc")
+               .option("url", url).option("user", userId).option("password", pwd).option("dbtable", sql).load();
+        
+        return dataset;
+  }
+  
+  public void step1(String manufacturerCode) throws Exception{
+        
+        String historyStartDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.HISTORY_START_DATE); //JUN 29 2015
+        String historyEndDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.HISTORY_END_DATE);   //JUN 30 2015
+
+        String sql = "(select DIN_PIN,DT_OF_SERV, ADJUDICATION_DT, PROF_FEE_ALLD,QTY,DRG_CST_ALLD,PROG_ID,PROD_SEL, INTERVENTION_1, " +
+                      "INTERVENTION_2, INTERVENTION_3, INTERVENTION_4, INTERVENTION_5, INTERVENTION_6, INTERVENTION_7, INTERVENTION_8, INTERVENTION_9, INTERVENTION_10 " +
+                      "from CLMHIST " +
+                      "where CURR_STAT = 'P' and Trunc(DT_OF_SERV) >= to_date('" + historyStartDate + "','MM-DD-YYYY') AND " +
+                                   "Trunc(DT_OF_SERV) <= to_date('" + historyEndDate + "','MM-DD-YYYY') AND " +
+                                   "PROG_ID <> 'TP' and DIN_PIN in (select DIN_PIN from SCHEDULE_A where MANUFACTURER_CD = '" + manufacturerCode + "'))";
+        
+
+        try{
+
+               Dataset<org.apache.spark.sql.Row> qualifiedClaims = getDataset(sql);
+            RebateCalculatorCache.setSparkDatasetCache("QUALIFIED_CLAIMS", qualifiedClaims);
+            System.out.println("All Qualified Claims for " + manufacturerCode);
+            qualifiedClaims.show();
+            RebateCalculatorCache.setSparkDatasetCache("step1", qualifiedClaims);
+
+        }catch(Exception e){
+               e.printStackTrace();
+               throw e;
+        }finally{
+               
+        }
+  }
+
+  public static void step2(String manufacturerCode) throws Exception{
+        
+        String firstPriceDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.FIRST_PRICE_DATE);   //OCT-23-2006
+        
+        String sql = "(select d.INDIVIDUAL_PRICE AS FIRST_PRICE, d.DIN_DESC, r.REC_EFF_DATE,d.REC_CREATE_TIMESTAMP,d.DIN_PIN, d.MANUFACTURER_CD from (" + 
+                    " select DIN_PIN,MAX(REC_EFF_DT) as REC_EFF_DATE from DRUG where MANUFACTURER_CD = '" + manufacturerCode+ "' AND " +
+                    " Trunc(REC_EFF_DT) < to_date('" + firstPriceDate + "','MM-DD-YYYY') AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN) r " +
+               " inner join DRUG d on d.DIN_PIN = r.DIN_PIN and d.REC_EFF_DT = r.REC_EFF_DATE)";
+
+        try{
+               Dataset<org.apache.spark.sql.Row> rawFirstPrice = getDataset(sql);
+              /* System.out.println("Raw First Price of Drug ");
+               rawFirstPrice.show();*/
+               
+               Dataset<org.apache.spark.sql.Row> firstPrice = rawFirstPrice.groupBy("DIN_PIN","REC_EFF_DATE").agg(max("REC_CREATE_TIMESTAMP"));
+               firstPrice = firstPrice.withColumnRenamed("max(REC_CREATE_TIMESTAMP)", "REC_CREATE_TIMESTAMP");
+               firstPrice = rawFirstPrice.join(firstPrice,
+            		   						rawFirstPrice.col("REC_CREATE_TIMESTAMP").equalTo(firstPrice.col("REC_CREATE_TIMESTAMP"))
+            		   															     .and(rawFirstPrice.col("DIN_PIN").equalTo(firstPrice.col("DIN_PIN")))
+            		   															     .and(rawFirstPrice.col("REC_EFF_DATE").equalTo(firstPrice.col("REC_EFF_DATE")))
+            		   															     ,"left_semi").orderBy("DIN_PIN");    				
+               System.out.println("First Price of Drug ");
+               firstPrice.show();
+               RebateCalculatorCache.setSparkDatasetCache("step2", firstPrice);
+        }catch(Exception e){
+               e.printStackTrace();
+               throw e;
+        }finally{
+        }
+  }
+
+  /**
+  * Get Second Price.
+  * @param din
+  * @param conn
+  * @return
+  * @throws Exception
+  */
+  public static void step3(String manufacturerCode) throws Exception{
+        
+        String secondPriceDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.SECOND_PRICE_DATE);  //OCT-23-2015
+
+        String sql = "(select d.INDIVIDUAL_PRICE AS SECOND_PRICE, d.DIN_DESC, r.REC_EFF_DATE,d.REC_CREATE_TIMESTAMP,d.DIN_PIN, d.MANUFACTURER_CD from (" + 
+                    "select DIN_PIN,MAX(REC_EFF_DT) as REC_EFF_DATE from DRUG where MANUFACTURER_CD = '" + manufacturerCode+ "' AND " +
+                    "REC_EFF_DT < to_date('" + secondPriceDate + "','MM-DD-YYYY')  AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN) r " +
+               "inner join DRUG d on d.DIN_PIN = r.DIN_PIN and d.REC_EFF_DT = r.REC_EFF_DATE)";
+
+        try{
+        	   System.out.println("Second Price of Drug ");
+               Dataset<org.apache.spark.sql.Row> rawSecondPrice = getDataset(sql);             
+               Dataset<org.apache.spark.sql.Row> secondPrice = rawSecondPrice.groupBy("DIN_PIN","REC_EFF_DATE").agg(max("REC_CREATE_TIMESTAMP"));               
+               secondPrice = secondPrice.withColumnRenamed("max(REC_CREATE_TIMESTAMP)", "REC_CREATE_TIMESTAMP");
+               secondPrice = rawSecondPrice.join(secondPrice,
+            		   						rawSecondPrice.col("REC_CREATE_TIMESTAMP").equalTo(secondPrice.col("REC_CREATE_TIMESTAMP"))
+            		   																  .and(rawSecondPrice.col("DIN_PIN").equalTo(secondPrice.col("DIN_PIN")))
+            		   																  .and(rawSecondPrice.col("REC_EFF_DATE").equalTo(secondPrice.col("REC_EFF_DATE")))
+            		   																  ,"left_semi").orderBy("DIN_PIN");    		   						   					 
+               secondPrice.show(); 
+               RebateCalculatorCache.setSparkDatasetCache("step3", secondPrice);
+        }catch(Exception e){
+               e.printStackTrace();
+               throw e;
+        }finally{
+        }
+  }
+  
+  public static void step4(String manufacturerCode) throws Exception{
+      
+	  String yyyyPriceDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.YYYY_PRICE_DATE);	
+		
+		String sql = "(select d.INDIVIDUAL_PRICE AS YYYY_PRICE, d.DIN_DESC, r.REC_EFF_DATE,d.REC_CREATE_TIMESTAMP,d.DIN_PIN, d.MANUFACTURER_CD from (" + 
+			     "select DIN_PIN,MAX(REC_EFF_DT) as REC_EFF_DATE from DRUG where MANUFACTURER_CD = '" + manufacturerCode+ "' AND " +
+			     "REC_EFF_DT < to_date('" + yyyyPriceDate + "','MM-DD-YYYY') AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN) r " +
+			"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and d.REC_EFF_DT = r.REC_EFF_DATE)";
+
+      try{
+      	   System.out.println("YYYY Price of Drug ");
+             Dataset<org.apache.spark.sql.Row> rawYYYYPrice = getDataset(sql);  
+             
+             Dataset<org.apache.spark.sql.Row> yyyyPrice = rawYYYYPrice.groupBy("DIN_PIN","REC_EFF_DATE").agg(max("REC_CREATE_TIMESTAMP")); 
+             
+             yyyyPrice = yyyyPrice.withColumnRenamed("max(REC_CREATE_TIMESTAMP)", "REC_CREATE_TIMESTAMP");
+             
+             yyyyPrice = rawYYYYPrice.join(yyyyPrice,
+            		 rawYYYYPrice.col("REC_CREATE_TIMESTAMP").equalTo(yyyyPrice.col("REC_CREATE_TIMESTAMP"))
+																  .and(rawYYYYPrice.col("DIN_PIN").equalTo(yyyyPrice.col("DIN_PIN")))
+																  .and(rawYYYYPrice.col("REC_EFF_DATE").equalTo(yyyyPrice.col("REC_EFF_DATE")))
+																  ,"left_semi").orderBy("DIN_PIN");  
+          		   																 
+      		   						   					 
+             yyyyPrice.show();
+             RebateCalculatorCache.setSparkDatasetCache("step4", yyyyPrice);
+      }catch(Exception e){
+             e.printStackTrace();
+             throw e;
+      }finally{
+      }
+  }    
+      public static void step5(String manufacturerCode) throws Exception{
+          
+    	  String yyyyPriceDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.YYYY_PRICE_DATE);	
+    		
+    		String sql = "(select d.INDIVIDUAL_PRICE AS YYYY_PRICE, d.DIN_DESC, r.REC_EFF_DATE,d.REC_CREATE_TIMESTAMP,d.DIN_PIN, d.MANUFACTURER_CD from (" + 
+    			     "select DIN_PIN,MAX(REC_EFF_DT) as REC_EFF_DATE from DRUG where MANUFACTURER_CD = '" + manufacturerCode+ "' AND " +
+    			     "REC_EFF_DT < to_date('" + yyyyPriceDate + "','MM-DD-YYYY') AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN) r " +
+    			"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and d.REC_EFF_DT = r.REC_EFF_DATE)";
+
+          try{
+          	   System.out.println("Join the 3 previously created temporary drug files together");
+          	 Dataset<org.apache.spark.sql.Row> temp02DS = RebateCalculatorCache.getSparkDatasetCache("temp02DS");
+     		Dataset<org.apache.spark.sql.Row> temp03DS = RebateCalculatorCache.getSparkDatasetCache("temp03DS");
+     		Dataset<org.apache.spark.sql.Row> temp99DS = RebateCalculatorCache.getSparkDatasetCache("temp99DS");
+     		Dataset<org.apache.spark.sql.Row> a = temp02DS.select("DIN_PIN","DIN_DESC","SECOND_PRICE","REC_EFF_DT","REC_CREATE_TIMESTAMP");
+     		
+     		
+     		Dataset<org.apache.spark.sql.Row> b = temp03DS.select("FIRST_PRICE","MANUFACTURER_CD");
+     		Dataset<org.apache.spark.sql.Row> c = temp99DS.select("YYYY_PRICE");
+     		
+     		temp02DS.join(temp03DS,temp02DS.col("DIN_PIN").equalTo(temp03DS.col("DIN_PIN")),"left_semi").join(temp99DS,temp02DS.col("DIN_PIN").equalTo(temp99DS.col("DIN_PIN")),"left_semi").show();
+               
+                 
+          }catch(Exception e){
+                 e.printStackTrace();
+                 throw e;
+          }finally{
+          }
+}
+
+
+  
+  
+  public void calculateRebate(String manufacturerCode, Connection conn1, Connection conn2, String path) throws Exception{
 		PropertyConfig.setPropertyPath(appRoot + "\\conf\\system.properties");
+		String username = PropertyConfig.getProperty("app.config.db.username2");
+		String pwd = PropertyConfig.getProperty("app.config.db.password2");
+		String url = PropertyConfig.getProperty("app.config.db.dbUrl2");
 		
-		step1CreateTemp01(manufacturerCode, conn2, connectionProperties);
+	/*	Properties sparkDBConnectionProperties = new Properties();
+		sparkDBConnectionProperties.put("url", url);
+		sparkDBConnectionProperties.put("pwd", pwd);
+		sparkDBConnectionProperties.put("username", username);*/
 		
-		step2CreateTemp03(manufacturerCode, conn2, connectionProperties);
-		step3CreateTemp02(manufacturerCode, conn2, connectionProperties);
-		step4CreateTemp99(manufacturerCode, conn2, connectionProperties);
-		step5Join2To4TogetherTemp02(manufacturerCode, conn1, connectionProperties);
-		step6And7DefineMissingDBTemp02(manufacturerCode, conn1, connectionProperties);
-		step8CreateTemp04(manufacturerCode, conn1, connectionProperties);
-		step9CreateTemp05(manufacturerCode, conn1, connectionProperties);
-		step10CreateTemp06(manufacturerCode, conn1, connectionProperties);
-		step11To13CreateTemp07(manufacturerCode, conn1, connectionProperties);
-		step14CreateTemp08(manufacturerCode, conn1, connectionProperties);
-		step15CalculateVolumeDiscountTemp08(manufacturerCode, conn1, connectionProperties);
-		step16And17CreateTemp09(manufacturerCode, conn1, connectionProperties);
-		step18And19CreateSummaryFileTemp11(manufacturerCode, conn1, connectionProperties);
-		step20And21CreateSummaryFileFromTemp11(manufacturerCode, conn1,path, connectionProperties);
 		
+		SparkDatabaseConnection.setUrl(url);
+		SparkDatabaseConnection.setUsername(username);
+		SparkDatabaseConnection.setPassword(pwd);
+		
+		SparkDatabaseConnection.setSparkDBConnectionProperties(username, pwd);
+		
+		
+		step1GetQualifiedClaims(manufacturerCode, conn2);		
+		step2GetFirstPrice(manufacturerCode, conn2);
+		step3CreateTemp02(manufacturerCode, conn2);
+		step4CreateTemp99(manufacturerCode, conn2);
+		/*
+		step5Join2To4TogetherTemp02(manufacturerCode, conn1);
+		step6And7DefineMissingDBTemp02(manufacturerCode, conn1);
+		step8CreateTemp04(manufacturerCode, conn1);
+		step9CreateTemp05(manufacturerCode, conn1);
+		step10CreateTemp06(manufacturerCode, conn1);
+		step11To13CreateTemp07(manufacturerCode, conn1);
+		step14CreateTemp08(manufacturerCode, conn1);
+		step15CalculateVolumeDiscountTemp08(manufacturerCode, conn1);
+		step16And17CreateTemp09(manufacturerCode, conn1);
+		step18And19CreateSummaryFileTemp11(manufacturerCode, conn1);
+		step20And21CreateSummaryFileFromTemp11(manufacturerCode, conn1,path);
+		*/
 	}
 	
-	public List<RebateVO> step1CreateTemp01(String manufacturerCode, Connection conn, Properties connectionProperties ) throws Exception{// here din is "02418401" for the example
-		
-		
-		List<RebateVO> temp01 = new ArrayList<RebateVO>();
-		
-		String historyStartDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.HISTORY_START_DATE);	//JUN 29 2015
-		String historyEndDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.HISTORY_END_DATE);	//JUN 30 2015
-		
-		
-		String sql = "select DIN_PIN,DT_OF_SERV, ADJUDICATION_DT, PROF_FEE_ALLD,QTY,DRG_CST_ALLD,PROG_ID,PROD_SEL, INTERVENTION_1, " +
+    public void step1GetQualifiedClaims(String manufacturerCode, Connection conn) throws Exception{// here din is "02418401" for the example
+        
+        String historyStartDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.HISTORY_START_DATE); //JUN 29 2015
+        String historyEndDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.HISTORY_END_DATE);   //JUN 30 2015
+
+        String sql = "select DIN_PIN,DT_OF_SERV, ADJUDICATION_DT, PROF_FEE_ALLD,QTY,DRG_CST_ALLD,PROG_ID,PROD_SEL, INTERVENTION_1, " +
 				"INTERVENTION_2, INTERVENTION_3, INTERVENTION_4, INTERVENTION_5, INTERVENTION_6, INTERVENTION_7, INTERVENTION_8, INTERVENTION_9, INTERVENTION_10 " +
 				"from CLMHIST " +
 				"where CURR_STAT = 'P' and DT_OF_SERV >= to_date('" + historyStartDate + "','MM-DD-YYYY') AND " +
 						"DT_OF_SERV <= to_date('" + historyEndDate + "','MM-DD-YYYY') AND " +
 						"PROG_ID <> 'TP' and DIN_PIN in (select DIN_PIN from SCHEDULE_A where MANUFACTURER_CD = '" + manufacturerCode + "')";
-		
-		PreparedStatement ps = null;
-		PreparedStatement ps1 = null;
-		ResultSet rs = null;
-		StructType schemata = DataTypes.createStructType(
-		        new StructField[]{
-		        		DataTypes.createStructField("CLAIM_ID", DataTypes.IntegerType, true),
-		        		DataTypes.createStructField("DIN_PIN", DataTypes.StringType, true),
-		        		DataTypes.createStructField("PROF_FEE_ALLD", DataTypes.IntegerType, true),
-		        		DataTypes.createStructField("ADJUDICATION_DT", DataTypes.DateType, true),
-		        		DataTypes.createStructField("DT_OF_SERV", DataTypes.DateType, true),
-		        		DataTypes.createStructField("QTY", DataTypes.IntegerType, true),
-		        		DataTypes.createStructField("DRG_CST_ALLD", DataTypes.DoubleType, true),		        		
-		        		DataTypes.createStructField("PROD_SEL", DataTypes.DoubleType, true),
-		        		DataTypes.createStructField("INTERVENTION_1", DataTypes.StringType, true),
-		        		DataTypes.createStructField("INTERVENTION_2", DataTypes.StringType, true),
-		        		DataTypes.createStructField("INTERVENTION_3", DataTypes.StringType, true),
-		        		DataTypes.createStructField("INTERVENTION_4", DataTypes.StringType, true),
-		        		DataTypes.createStructField("INTERVENTION_5", DataTypes.StringType, true),
-		        		DataTypes.createStructField("INTERVENTION_6", DataTypes.StringType, true),
-		        		DataTypes.createStructField("INTERVENTION_7", DataTypes.StringType, true),
-		        		DataTypes.createStructField("INTERVENTION_8", DataTypes.StringType, true),
-		        		DataTypes.createStructField("INTERVENTION_9", DataTypes.StringType, true),
-		        		DataTypes.createStructField("INTERVENTION_10", DataTypes.StringType, true),
-		        });
-		List<org.apache.spark.sql.Row> rowList = new ArrayList<org.apache.spark.sql.Row>();
-		Dataset<org.apache.spark.sql.Row> temp01DS = spark.createDataFrame(rowList, schemata);
-		
-		/*Dataset<org.apache.spark.sql.Row> temp01DS = spark.read()
-				  .jdbc(PropertyConfig.getProperty("app.config.db.dbUrl2"),"CLMHIST", connectionProperties);
-		temp01DS.createOrReplaceTempView("CLMHIST");      // Register the DataFrame as a SQL temporary view
-		Dataset<org.apache.spark.sql.Row> scheduleADS = spark.read()
-				  .jdbc(PropertyConfig.getProperty("app.config.db.dbUrl2"),"SCHEDULE_A", connectionProperties);
-		scheduleADS.createOrReplaceTempView("SCHEDULE_A");
-		
-		temp01DS = temp01DS.withColumn("DT_OF_SERV",date_format(col("DT_OF_SERV"),"yyyy-MM-dd"));   // convert timestamp to string
-		temp01DS = temp01DS.withColumn("DT_OF_SERV",to_date(col("DT_OF_SERV"),"yyyy-MM-dd"));       // convert string to date
-		
-		System.out.println("===================================================TEMP01=======================================");
-		temp01DS.sparkSession().sql(sql);
-		temp01DS = temp01DS.select(col("DIN_PIN"),col("DT_OF_SERV"),col("ADJUDICATION_DT"),col("PROF_FEE_ALLD"),col("QTY"),col("DRG_CST_ALLD"),col("PROG_ID"),col("PROD_SEL"),
-				  col("INTERVENTION_1"),col("INTERVENTION_2"),col("INTERVENTION_3"),col("INTERVENTION_4"),col("INTERVENTION_5"),col("INTERVENTION_6"),
-				  col("INTERVENTION_7"),col("INTERVENTION_8"),col("INTERVENTION_9"),col("INTERVENTION_10"));
-		temp01DS.printSchema();
-		temp01DS.show();*/
-		
-		/*temp01DS = temp01DS.withColumn("DT_OF_SERV",col("DT_OF_SERV").cast("date"));*/					
-		
-		/*temp01DS = temp01DS.select(col("CLAIM_ID"),col("DIN_PIN"),col("PROF_FEE_ALLD"),col("ADJUDICATION_DT"),col("DT_OF_SERV"),col("QTY"),col("DRG_CST_ALLD"),
-				col("PROD_SEL"),col("INTERVENTION_1"),col("INTERVENTION_2"),col("INTERVENTION_3"),col("INTERVENTION_4"),col("INTERVENTION_5"),col("INTERVENTION_6"),col("INTERVENTION_7"),
-				col("INTERVENTION_8"),col("INTERVENTION_9"),col("INTERVENTION_10"));*/
-	
-		
-		try{
-			String sql1 = "TRUNCATE TABLE TEMP01";
-			ps =  conn.prepareStatement(sql1);
-			ps.executeUpdate();
-			ps = null;
-			
-			ps = conn.prepareStatement(sql);
-			rs = ps.executeQuery();
-			
-			
-			
-		
-			if(rs != null){
-				
-				int key = 1;
-				while(rs.next()){
-					RebateVO row = new RebateVO();
-					String din = rs.getString("DIN_PIN");
-					java.sql.Date dateOfServ = rs.getDate("DT_OF_SERV");
-					java.sql.Date adjudicationDate = rs.getDate("ADJUDICATION_DT");
-					double  drugCostAllowed = rs.getDouble("DRG_CST_ALLD");
-					//int cstUpchargeAlld = rs.getInt("CST_UPCHRG_ALLD");
-					int profFeeAlld = rs.getInt("PROF_FEE_ALLD");
-					//int compFeeAlld = rs.getInt("COMP_FEE_ALLD");
-					//int deductToCollect = rs.getInt("DEDUCT_TO_COLLECT");
-					//int totalAmountPaid = rs.getInt("TOT_AMT_PD");
-					//String currentRxNo = rs.getString("CURR_RX_NO");
-					//String manufactuerCode = rs.getString("MANUFACTURER_CD");
-					int quantity = rs.getInt("QTY");
-					
-					double prodSel = rs.getDouble("PROD_SEL");
-					String progId =  rs.getString("PROG_ID");
-					String intervention1 = rs.getString("INTERVENTION_1");
-					String intervention2 = rs.getString("INTERVENTION_2");
-					String intervention3 = rs.getString("INTERVENTION_3");
-					String intervention4 = rs.getString("INTERVENTION_4");
-					String intervention5 = rs.getString("INTERVENTION_5");
-					String intervention6 = rs.getString("INTERVENTION_6");
-					String intervention7 = rs.getString("INTERVENTION_7");
-					String intervention8 = rs.getString("INTERVENTION_8");
-					String intervention9 = rs.getString("INTERVENTION_9");
-					String intervention10 = rs.getString("INTERVENTION_10");	
-					
-					row.setManufacturerCd(manufacturerCode);
-					row.setManufacturerCd(manufacturerCode);
-					row.setDinPin(din);
-					row.setDtOfServ(dateOfServ);
-					row.setAdjudicationDt(adjudicationDate);
-					row.setDrgCstAlld(drugCostAllowed);
-					//row.setCstUpchrgAlld(cstUpchargeAlld);
-					//row.setProfFeeAlld(profFeeAlld);
-					//row.setCompFeeAlld(compFeeAlld);
-					//row.setDeductToCollect(deductToCollect);
-					//row.setTotAmtPd(totalAmountPaid);
-					//row.setCurrRxNo(currentRxNo);
-					row.setQty(quantity);
-					//row.setProdSel(prodSel);
-					row.setProgId(progId);
-					row.setIntervention1(intervention1);
-					row.setIntervention2(intervention2);
-					row.setIntervention3(intervention3);
-					row.setIntervention4(intervention4);
-					row.setIntervention5(intervention5);
-					row.setIntervention6(intervention6);
-					
-					String sql2 = "INSERT INTO TEMP01 (CLAIM_ID,DIN_PIN,PROF_FEE_ALLD,ADJUDICATION_DT,DT_OF_SERV,QTY,DRG_CST_ALLD,PROD_SEL,INTERVENTION_1," +
-							"INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6,INTERVENTION_7,INTERVENTION_8,INTERVENTION_9,INTERVENTION_10) "+
-							"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-	
-					ps1 = conn.prepareStatement(sql2);
-					ps1.setInt(1, key++);
-					ps1.setString(2, din);
-					ps1.setDouble(3, profFeeAlld);
-					ps1.setDate(4, adjudicationDate);
-					ps1.setDate(5, dateOfServ);
-					ps1.setDouble(6, quantity);
-					ps1.setDouble(7, drugCostAllowed);
-					ps1.setDouble(8, prodSel);
-					
-					ps1.setString(9,intervention1);
-					ps1.setString(10,intervention2);
-					ps1.setString(11,intervention3);
-					ps1.setString(12,intervention4);
-					ps1.setString(13,intervention5);
-					ps1.setString(14,intervention6);
-					ps1.setString(15,intervention7);
-					ps1.setString(16,intervention8);
-					ps1.setString(17,intervention9);
-					ps1.setString(18,intervention10);
-					
-					ps1.executeUpdate();
-					
-					temp01.add(row);
-					
-					org.apache.spark.sql.Row apacheRow =  RowFactory.create(key-1, din, profFeeAlld, adjudicationDate, dateOfServ, quantity, drugCostAllowed, prodSel
-														 ,intervention1, intervention2, intervention3, intervention4, intervention5, intervention6, intervention7
-														 , intervention8, intervention9, intervention10);
-					
-					rowList.add(apacheRow);
-				}
+        try{
+        	
+        	Dataset<org.apache.spark.sql.Row> temp01DS = spark.read()
+  				  .jdbc(SparkDatabaseConnection.getUrl(),"CLMHIST", SparkDatabaseConnection.getSparkDBConnectionProperties());
+        	temp01DS.createOrReplaceTempView("CLMHIST");      // Register the DataFrame as a SQL temporary view
+            
+        	Dataset<org.apache.spark.sql.Row> scheduleADS = spark.read()
+  				  .jdbc(SparkDatabaseConnection.getUrl(),"SCHEDULE_A", SparkDatabaseConnection.getSparkDBConnectionProperties());
+        	scheduleADS.createOrReplaceTempView("SCHEDULE_A");
+        	
+        	temp01DS = temp01DS.withColumn("DT_OF_SERV",date_format(col("DT_OF_SERV"),"yyyy-MM-dd"));   // convert timestamp to string
+    		temp01DS = temp01DS.withColumn("DT_OF_SERV",to_date(col("DT_OF_SERV"),"yyyy-MM-dd"));       // convert string to date
+    		
+    		System.out.println("===================================================STEP01=======================================");
+    		temp01DS.sparkSession().sql(sql);
+    		temp01DS = temp01DS.select("DIN_PIN","DT_OF_SERV","ADJUDICATION_DT","PROF_FEE_ALLD","QTY","DRG_CST_ALLD","PROG_ID","PROD_SEL",
+    				  "INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4","INTERVENTION_5","INTERVENTION_6",
+    				  "INTERVENTION_7","INTERVENTION_8","INTERVENTION_9","INTERVENTION_10");
+    		temp01DS.printSchema();
+    		temp01DS.show();
+        	
 
-				System.out.println("===================================================TEMP01=======================================");
-				temp01DS = spark.createDataFrame(rowList, schemata);
-				RebateCalculatorCache.setSparkDatasetCache("temp01DS",temp01DS);
-				temp01DS.show();
-				
-			}
-		}catch(Exception e){
-			e.printStackTrace();
-			throw e;
-		}finally{
-			DBConnectionManager.getManager().closeConnection(null, ps, rs);
-		}
-		return temp01;
-	}
-
+        }catch(Exception e){
+               e.printStackTrace();
+               throw e;
+        }finally{
+               
+        }        
+     }
 	/**
 	 * PLEASE NOTE:  step 2, step3, and step 4  select from same table with same conditions, only different parameter of DATE is passed.
 	 * @param din
@@ -305,194 +398,42 @@ public class RebateEngineSpark {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<RebateVO> step2CreateTemp03(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public void step2GetFirstPrice(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
-		List<RebateVO> temp03 = new ArrayList<RebateVO>();
+		
 		String firstPriceDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.FIRST_PRICE_DATE);	//OCT-23-2006
-		Map<String, RebateVO> dinMap = null;
-		
+			
 		String sql = "select d.INDIVIDUAL_PRICE AS FIRST_PRICE, d.DIN_DESC, r.REC_EFF_DATE,d.REC_CREATE_TIMESTAMP,d.DIN_PIN, d.MANUFACTURER_CD from (" + 
 			     " select DIN_PIN,MAX(REC_EFF_DT) as REC_EFF_DATE from DRUG where MANUFACTURER_CD = '" + manufacturerCode+ "' AND " +
-			     " Trunc(REC_EFF_DT) < to_date('" + firstPriceDate + "','MM-DD-YYYY') AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN) r " +
+			     " REC_EFF_DT < to_date('" + firstPriceDate + "','MM-DD-YYYY') AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN) r " +
 			" inner join DRUG d on d.DIN_PIN = r.DIN_PIN and d.REC_EFF_DT = r.REC_EFF_DATE";
-		
-		PreparedStatement ps = null;
-		PreparedStatement ps1 = null;
-		ResultSet rs = null;
-		ResultSet rs1 = null;	
-		
-		StructType schemata = DataTypes.createStructType(
-		        new StructField[]{
-		        		DataTypes.createStructField("DIN_PIN", DataTypes.StringType, false),
-		        		DataTypes.createStructField("DIN_DESC", DataTypes.StringType, false),
-		        		DataTypes.createStructField("FIRST_PRICE", DataTypes.DoubleType, false),
-		        		DataTypes.createStructField("REC_EFF_DT", DataTypes.DateType, false),
-		        		DataTypes.createStructField("REC_CREATE_TIMESTAMP", DataTypes.DateType, false),
-		        		DataTypes.createStructField("MANUFACTURER_CD", DataTypes.StringType, false),
-		        });
-		List<org.apache.spark.sql.Row> rowList = new ArrayList<org.apache.spark.sql.Row>();
-		Dataset<org.apache.spark.sql.Row> temp03DS = spark.createDataFrame(rowList, schemata);
+
 		
 			
 		try{
-			String sql1 = "TRUNCATE TABLE TEMP03";
-			ps =  conn.prepareStatement(sql1);
-			ps.executeUpdate();
-			ps = null;
 			
-			ps = conn.prepareStatement(sql);
-			rs = ps.executeQuery();
+			Dataset<org.apache.spark.sql.Row> drugDS = spark.read()
+					  .jdbc(SparkDatabaseConnection.getUrl(),"DRUG", SparkDatabaseConnection.getSparkDBConnectionProperties());
+	      	drugDS.createOrReplaceTempView("DRUG");
+			drugDS = drugDS.withColumn("REC_EFF_DT",date_format(col("REC_EFF_DT"),"yyyy-MM-dd"));   
+			drugDS = drugDS.withColumn("REC_EFF_DT",to_date(col("REC_EFF_DT"),"yyyy-MM-dd"));       
+			
+			System.out.println("===================================================STEP02=======================================");
+			drugDS = drugDS.sparkSession().sql(sql);
+			drugDS = drugDS.select("DIN_PIN","DIN_DESC","FIRST_PRICE","REC_EFF_DATE","QTY","REC_CREATE_TIMESTAMP","MANUFACTURER_CD");
+    				
+			drugDS.printSchema();
+			drugDS.show();
 			
 			
-			
-			/*temp03DS = temp03DS.withColumn("REC_EFF_DT",date_format(col("REC_EFF_DT"),"yyyy-MM-dd"));   // convert timestamp to string
-			temp03DS = temp03DS.withColumn("REC_EFF_DT",to_date(col("REC_EFF_DT"),"yyyy-MM-dd"));       // convert string to date	
-			temp03DS.show();
-			
-			Dataset<org.apache.spark.sql.Row> unionTemp03DS = temp03DS.select(col("INDIVIDUAL_PRICE").alias("FIRST_PRICE"),col("DIN_DESC"),col("REC_EFF_DT").alias("REC_EFF_DATE"),col("REC_CREATE_TIMESTAMP"),col("DIN_DESC"),col("MANUFACTURER_CD"));
-                  
-			unionTemp03DS.show();*/
-			
-			if(rs != null){
-				dinMap = new HashMap<String, RebateVO>();
-				while(rs.next()){
-					RebateVO row = new RebateVO();
-					double firstPrice = rs.getDouble("FIRST_PRICE");
-					String din = rs.getString("DIN_PIN");
-					String brandName = rs.getString("DIN_DESC");
-					Date effectiveDate = rs.getDate("REC_EFF_DATE");
-					
-					
-					
-					String manufacturerCd =  rs.getString("MANUFACTURER_CD");
-					row.setDinDesc(brandName);
-					row.setManufacturerCd(manufacturerCode);
-					row.setDinPin(din);
-					row.setFirstPrice(firstPrice);
-					row.setRecEffDt(effectiveDate);
-					row.setRecCreateTimestamp(rs.getDate("REC_CREATE_TIMESTAMP"));
-					/*String sparkSql = "select d.INDIVIDUAL_PRICE AS FIRST_PRICE, d.DIN_DESC, d.REC_EFF_DT,d.REC_CREATE_TIMESTAMP, r.REC_CREATE_TIME,d.DIN_PIN from ( " +
-						     "select DIN_PIN,REC_EFF_DT,MAX(REC_CREATE_TIMESTAMP) as REC_CREATE_TIME from DRUG where MANUFACTURER_CD ='" + manufacturerCode + "' AND " +
-						     "REC_EFF_DT = '" + effectiveDate + "' AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT) r " +
-						"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and  d.REC_CREATE_TIMESTAMP = r.REC_CREATE_TIME";
-					
-					temp03DS = temp03DS.sparkSession().sql(sparkSql);*/
-					//unionTemp03DS = temp03DS;
-					//unionTemp03DS.show();		
-					//unionTemp03DS = unionTemp03DS.union(temp03DS);
-					
-					if(dinMap.containsKey(din)){
-						//String eDate = format.format(new Date(effectiveDate.getTime()));
-						String eDate = effectiveDate.toString();
-						
-						
-						
-						sql = "select d.INDIVIDUAL_PRICE AS FIRST_PRICE, d.DIN_DESC, d.REC_EFF_DT,d.REC_CREATE_TIMESTAMP, r.REC_CREATE_TIME,d.DIN_PIN from ( " +
-							     "select DIN_PIN,REC_EFF_DT,MAX(REC_CREATE_TIMESTAMP) as REC_CREATE_TIME from DRUG where MANUFACTURER_CD ='" + manufacturerCode + "' AND " +
-							     "Trunc(REC_EFF_DT) = to_Date('" + eDate + "','YYYY-MM-DD') AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT) r " +
-							"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and  d.REC_CREATE_TIMESTAMP = r.REC_CREATE_TIME"; 
-								
-						ps = conn.prepareStatement(sql);
-						rs1 = ps.executeQuery();
-						
-						/*String sparkSql = "select DIN_PIN,REC_EFF_DT,MAX(REC_CREATE_TIMESTAMP) as REC_CREATE_TIME from DRUG where MANUFACTURER_CD ='" + manufacturerCode + "' AND " +
-							     "REC_EFF_DT = '" + effectiveDate + "' AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT ";*/
-						
-						/*String sparkSql = "select d.INDIVIDUAL_PRICE AS FIRST_PRICE, d.DIN_DESC, d.REC_EFF_DT,d.REC_CREATE_TIMESTAMP, r.REC_CREATE_TIME,d.DIN_PIN from ( " +
-							     "select DIN_PIN,REC_EFF_DT,MAX(REC_CREATE_TIMESTAMP) as REC_CREATE_TIME from DRUG where MANUFACTURER_CD ='" + manufacturerCode + "' AND " +
-							     "REC_EFF_DT = '" + effectiveDate + "' AND DIN_PIN='" + din + "' AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN,REC_EFF_DT) r " +
-							"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and  d.REC_CREATE_TIMESTAMP = r.REC_CREATE_TIME";
-						temp03DS = temp03DS.sparkSession().sql(sparkSql);*/
-				
-						
-						//					
-						if(rs1 != null){
-							while(rs1.next()){
-								row = new RebateVO();
-								firstPrice = rs1.getDouble("FIRST_PRICE");
-								din = rs1.getString("DIN_PIN");
-								brandName = rs1.getString("DIN_DESC");
-								effectiveDate = rs1.getDate("REC_EFF_DT");
-								
-								row.setDinDesc(brandName);
-								row.setManufacturerCd(manufacturerCode);
-								row.setDinPin(din);
-								row.setFirstPrice(firstPrice);
-								row.setRecEffDt(effectiveDate);
-								row.setRecCreateTimestamp(rs1.getDate("REC_CREATE_TIMESTAMP"));
-								row.setManufacturerCd(manufacturerCd);
-								dinMap.put(din, row);	
-							}						
-						}						
-					}else{
-						dinMap.put(din, row);
-					}
-
-				}
-				
-				//temp03DS = temp03DS.select(col("DIN_PIN"),col("DIN_DESC"),col("FIRST_PRICE"),col("REC_EFF_DT"),col("REC_CREATE_TIMESTAMP"),col("MANUFACTURER_CD"));
-			/*	temp03DS.printSchema();
-				temp03DS.show();*/
-				
-				
-				
-				
-				Set<String> allKeys = dinMap.keySet();
-				Iterator<String> keys = allKeys.iterator();
-				while(keys.hasNext()){
-					String din = keys.next();
-					RebateVO vo = (RebateVO)dinMap.get(din);
-					//sql = "select * from TEMP03 where DIN_PIN = '" + vo.getDinPin() + "' and DIN_DESC = '" + vo.getDinDesc() +
-					//		"' and REC_EFF_DT = to_Date('" + vo.getRecEffDt() + "','YYYY-MM-DD')";
-					/*
-					sql = "select * from TEMP03 where DIN_PIN = '" + vo.getDinPin() + "' and DIN_DESC = '" + vo.getDinDesc() +
-							"' and REC_EFF_DT = ?";
-
-					ps = conn.prepareStatement(sql);
-					ps.setDate(1,vo.getRecEffDt());
-					rs = ps.executeQuery();
-					if(rs != null && rs.next()){
-						sql = "update TEMP03 set FIRST_PRICE = ? ,REC_CREATE_TIMESTAMP = ? where DIN_PIN = '" + vo.getDinPin() + "' and DIN_DESC = '" + vo.getDinDesc() +
-							"' and REC_EFF_DT = to_Date('" +vo.getRecEffDt() + "','YYYY-MM-DD')";
-						ps1 = conn.prepareStatement(sql);
-						ps1.setDouble(1, vo.getFirstPrice());
-						ps1.setDate(2,vo.getRecCreateTimestamp());
-					}else{*/
-						String sql2 = "insert into TEMP03 (DIN_PIN,DIN_DESC,FIRST_PRICE,REC_EFF_DT,REC_CREATE_TIMESTAMP,MANUFACTURER_CD) values(?,?,?,?,?,?)";
-						ps1 = conn.prepareStatement(sql2);
-						ps1.setString(1, vo.getDinPin());
-						ps1.setString(2, vo.getDinDesc());
-						ps1.setDouble(3, vo.getFirstPrice());
-						ps1.setDate(4, new java.sql.Date(vo.getRecEffDt().getTime()));
-						ps1.setDate(5, new java.sql.Date(vo.getRecCreateTimestamp().getTime()));
-						ps1.setString(6, vo.getManufacturerCd());
-						
-						org.apache.spark.sql.Row row =  RowFactory.create(vo.getDinPin(),vo.getDinDesc(), vo.getFirstPrice(), new java.sql.Date(vo.getRecEffDt().getTime()), new java.sql.Date(vo.getRecCreateTimestamp().getTime()), vo.getManufacturerCd() );
-						
-						rowList.add(row);
-						
-						
-					//}
-					int updateRow = ps1.executeUpdate();
-					//ps1.addBatch();
-					temp03.add(vo);
-				}
-				System.out.println("===================================================TEMP03=======================================");
-				temp03DS = spark.createDataFrame(rowList, schemata);
-				RebateCalculatorCache.setSparkDatasetCache("temp03DS",temp03DS);
-				temp03DS.show();
-				
-				//ps1.executeBatch();
-				
-			}
+		
 		}catch(Exception e){
 			e.printStackTrace();
 			throw e;
 		}finally{
-			DBConnectionManager.getManager().closeConnection(null, ps, rs);
-			DBConnectionManager.getManager().closeConnection(null, ps1, rs1);
+			
 		}
-		return temp03;
+
 	}
 
 	/**
@@ -502,7 +443,7 @@ public class RebateEngineSpark {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<RebateVO> step3CreateTemp02(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step3CreateTemp02(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp02 = new ArrayList<RebateVO>();
 		String secondPriceDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.SECOND_PRICE_DATE);	//OCT-23-2015
@@ -656,7 +597,7 @@ public class RebateEngineSpark {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<RebateVO> step4CreateTemp99(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step4CreateTemp99(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp99 = new ArrayList<RebateVO>();
 		String yyyyPriceDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.YYYY_PRICE_DATE);	//???
@@ -800,7 +741,7 @@ public class RebateEngineSpark {
 		return temp99;
 	}
 
-	public List<RebateVO> step5Join2To4TogetherTemp02(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step5Join2To4TogetherTemp02(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp02 = new ArrayList<RebateVO>();
 		String sql = "select a.DIN_PIN,a.DIN_DESC, b.FIRST_PRICE, a.SECOND_PRICE, c.YYYY_PRICE, a.REC_EFF_DT,a.REC_CREATE_TIMESTAMP,b.MANUFACTURER_CD from TEMP02 a " +
@@ -822,10 +763,12 @@ public class RebateEngineSpark {
 		Dataset<org.apache.spark.sql.Row> b = temp03DS.select("FIRST_PRICE","MANUFACTURER_CD");
 		Dataset<org.apache.spark.sql.Row> c = temp99DS.select("YYYY_PRICE");
 		
+		temp02DS.join(temp03DS,temp02DS.col("DIN_PIN").equalTo(temp03DS.col("DIN_PIN")),"left_semi").join(temp99DS,temp02DS.col("DIN_PIN").equalTo(temp99DS.col("DIN_PIN")),"left_semi").show();
 		
-		temp02DS = a.join(b,"full_outer").join(c,"full_outer");
-		temp02DS.show();
 		
+	/*	a.show();
+		b.show();
+		c.show();*/
 		try{
 			
 			ps = conn.prepareStatement(sql);
@@ -869,7 +812,7 @@ public class RebateEngineSpark {
 		return temp02;
 	}
 	
-	public List<RebateVO> step6And7DefineMissingDBTemp02(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step6And7DefineMissingDBTemp02(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp02 = new ArrayList<RebateVO>();
 		String sql = "select * from TEMP02";
@@ -927,7 +870,7 @@ public class RebateEngineSpark {
 	}
 	
 
-	public List<RebateVO> step8CreateTemp04(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step8CreateTemp04(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp04 = new ArrayList<RebateVO>();
 		PreparedStatement ps = null;
@@ -956,7 +899,7 @@ public class RebateEngineSpark {
 		return temp04;
 	}
 
-	public List<RebateVO> step9CreateTemp05(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step9CreateTemp05(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp05 = new ArrayList<RebateVO>();
 		PreparedStatement ps = null;
@@ -991,7 +934,7 @@ public class RebateEngineSpark {
 		return temp05;
 	}
 
-	public List<RebateVO> step10CreateTemp06(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step10CreateTemp06(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp06 = new ArrayList<RebateVO>();
 		PreparedStatement ps = null;
@@ -1026,7 +969,7 @@ public class RebateEngineSpark {
 		return temp06;
 	}
 	
-	public List<RebateVO> step11To13CreateTemp07(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step11To13CreateTemp07(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp07 = new ArrayList<RebateVO>();
 		
@@ -1094,7 +1037,7 @@ public class RebateEngineSpark {
 		return temp07;
 	}
 	
-	public List<RebateVO> step14CreateTemp08(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step14CreateTemp08(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp08 = new ArrayList<RebateVO>();
 		//I think it is done in step 11 to 13;
@@ -1108,7 +1051,7 @@ public class RebateEngineSpark {
 	 * 
 	 * Calculate Volume discount
 	 */
-	public List<RebateVO> step15CalculateVolumeDiscountTemp08(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step15CalculateVolumeDiscountTemp08(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp08 = new ArrayList<RebateVO>();
 		
@@ -1227,7 +1170,7 @@ public class RebateEngineSpark {
 	 * @throws Exception
 	 *
 	 */
-	public List<RebateVO> step16And17CreateTemp09(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step16And17CreateTemp09(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp09 = new ArrayList<RebateVO>();
 		
@@ -1270,7 +1213,7 @@ public class RebateEngineSpark {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<RebateVO> step17CreateSummaryFileTemp10(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step17CreateSummaryFileTemp10(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp10 = new ArrayList<RebateVO>();
 		//completed in step 16 already.
@@ -1286,7 +1229,7 @@ public class RebateEngineSpark {
 	 * @return
 	 * @throws Exception
 	 */
-	public List<RebateVO> step18And19CreateSummaryFileTemp11(String manufacturerCode,  Connection conn, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public List<RebateVO> step18And19CreateSummaryFileTemp11(String manufacturerCode,  Connection conn) throws Exception{// here din is "02418401" for the example
 		
 		List<RebateVO> temp11 = new ArrayList<RebateVO>();
 		PreparedStatement ps = null;
@@ -1361,7 +1304,7 @@ public class RebateEngineSpark {
 	 * @return
 	 * @throws Exception
 	 */
-	public void step20And21CreateSummaryFileFromTemp11(String manufacturerCode,  Connection conn, String path, Properties connectionProperties) throws Exception{// here din is "02418401" for the example
+	public void step20And21CreateSummaryFileFromTemp11(String manufacturerCode,  Connection conn, String path) throws Exception{// here din is "02418401" for the example
 		
 		File file = new File(path); 
 		if(!file.exists()){

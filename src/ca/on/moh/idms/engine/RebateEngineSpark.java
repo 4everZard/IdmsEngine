@@ -172,7 +172,7 @@ public class RebateEngineSpark {
             RebateCalculatorCache.setSparkDatasetCache("QUALIFIED_CLAIMS", qualifiedClaims);
             System.out.println("All Qualified Claims for " + manufacturerCode);
             qualifiedClaims.show();
-            RebateCalculatorCache.setSparkDatasetCache("step1", qualifiedClaims);
+            RebateCalculatorCache.setSparkDatasetCache("qualifiedClaims", qualifiedClaims);
 
         }catch(Exception e){
                e.printStackTrace();
@@ -205,7 +205,7 @@ public class RebateEngineSpark {
             		   															     ,"left_semi").orderBy("DIN_PIN");    				
                System.out.println("First Price of Drug ");
                firstPrice.show();
-               RebateCalculatorCache.setSparkDatasetCache("step2", firstPrice);
+               RebateCalculatorCache.setSparkDatasetCache("firstPrice", firstPrice);
         }catch(Exception e){
                e.printStackTrace();
                throw e;
@@ -240,7 +240,7 @@ public class RebateEngineSpark {
             		   																  .and(rawSecondPrice.col("REC_EFF_DATE").equalTo(secondPrice.col("REC_EFF_DATE")))
             		   																  ,"left_semi").orderBy("DIN_PIN");    		   						   					 
                secondPrice.show(); 
-               RebateCalculatorCache.setSparkDatasetCache("step3", secondPrice);
+               RebateCalculatorCache.setSparkDatasetCache("secondPrice", secondPrice);
         }catch(Exception e){
                e.printStackTrace();
                throw e;
@@ -273,7 +273,7 @@ public class RebateEngineSpark {
           		   																 
       		   						   					 
              yyyyPrice.show();
-             RebateCalculatorCache.setSparkDatasetCache("step4", yyyyPrice);
+             RebateCalculatorCache.setSparkDatasetCache("yyyyPrice", yyyyPrice);
       }catch(Exception e){
              e.printStackTrace();
              throw e;
@@ -282,23 +282,17 @@ public class RebateEngineSpark {
   }    
       public static void step5(String manufacturerCode) throws Exception{
           
-    	  String yyyyPriceDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.YYYY_PRICE_DATE);	
-    		
-    		String sql = "(select d.INDIVIDUAL_PRICE AS YYYY_PRICE, d.DIN_DESC, r.REC_EFF_DATE,d.REC_CREATE_TIMESTAMP,d.DIN_PIN, d.MANUFACTURER_CD from (" + 
-    			     "select DIN_PIN,MAX(REC_EFF_DT) as REC_EFF_DATE from DRUG where MANUFACTURER_CD = '" + manufacturerCode+ "' AND " +
-    			     "REC_EFF_DT < to_date('" + yyyyPriceDate + "','MM-DD-YYYY') AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN) r " +
-    			"inner join DRUG d on d.DIN_PIN = r.DIN_PIN and d.REC_EFF_DT = r.REC_EFF_DATE)";
+    	 
 
           try{
-          	   System.out.println("Join the 3 previously created temporary drug files together");
-          	 Dataset<org.apache.spark.sql.Row> temp02DS = RebateCalculatorCache.getSparkDatasetCache("temp02DS");
-     		Dataset<org.apache.spark.sql.Row> temp03DS = RebateCalculatorCache.getSparkDatasetCache("temp03DS");
-     		Dataset<org.apache.spark.sql.Row> temp99DS = RebateCalculatorCache.getSparkDatasetCache("temp99DS");
-     		Dataset<org.apache.spark.sql.Row> a = temp02DS.select("DIN_PIN","DIN_DESC","SECOND_PRICE","REC_EFF_DT","REC_CREATE_TIMESTAMP");
-     		
-     		
-     		Dataset<org.apache.spark.sql.Row> b = temp03DS.select("FIRST_PRICE","MANUFACTURER_CD");
-     		Dataset<org.apache.spark.sql.Row> c = temp99DS.select("YYYY_PRICE");
+          	System.out.println("Join the 3 previously created temporary drug files together");
+          	Dataset<org.apache.spark.sql.Row> firstPrice = RebateCalculatorCache.getSparkDatasetCache("firstPrice");
+     		Dataset<org.apache.spark.sql.Row> secondPrice = RebateCalculatorCache.getSparkDatasetCache("secondPrice");
+     		Dataset<org.apache.spark.sql.Row> yyyyPrice = RebateCalculatorCache.getSparkDatasetCache("yyyyPrice");
+     		Dataset<org.apache.spark.sql.Row> a = secondPrice.select("DIN_PIN","DIN_DESC","SECOND_PRICE","REC_EFF_DT","REC_CREATE_TIMESTAMP");
+   		
+     		Dataset<org.apache.spark.sql.Row> b = firstPrice.select("FIRST_PRICE","MANUFACTURER_CD");
+     		Dataset<org.apache.spark.sql.Row> c = yyyyPrice.select("YYYY_PRICE");
      		
      		temp02DS.join(temp03DS,temp02DS.col("DIN_PIN").equalTo(temp03DS.col("DIN_PIN")),"left_semi").join(temp99DS,temp02DS.col("DIN_PIN").equalTo(temp99DS.col("DIN_PIN")),"left_semi").show();
                

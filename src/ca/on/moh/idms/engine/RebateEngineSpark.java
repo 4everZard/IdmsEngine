@@ -122,6 +122,7 @@ public class RebateEngineSpark {
                calculator.step3(manufacturerCode);
                calculator.step4(manufacturerCode);
                calculator.step5(manufacturerCode);
+               calculator.step6and7(manufacturerCode);
                long endTime = System.currentTimeMillis();
                long timeSpent = (endTime - startTime)/1000;
                System.out.println("Total Time: " + timeSpent);
@@ -282,21 +283,36 @@ public class RebateEngineSpark {
   }    
       public static void step5(String manufacturerCode) throws Exception{
           
-    	 
+    		/*String sql = "select a.DIN_PIN,a.DIN_DESC, b.FIRST_PRICE, a.SECOND_PRICE, c.YYYY_PRICE, a.REC_EFF_DT,a.REC_CREATE_TIMESTAMP,b.MANUFACTURER_CD from TEMP02 a " +
+					"join TEMP03 b on a.DIN_PIN = b.DIN_PIN " +
+					"join Temp99 c on a.DIN_PIN = c.DIN_PIN " +
+					"order by a.DIN_PIN";*/
 
           try{
           	System.out.println("Join the 3 previously created temporary drug files together");
-          	Dataset<org.apache.spark.sql.Row> firstPrice = RebateCalculatorCache.getSparkDatasetCache("firstPrice");
+          	Dataset<org.apache.spark.sql.Row> firstPrice = RebateCalculatorCache.getSparkDatasetCache("firstPrice");      //b
      		Dataset<org.apache.spark.sql.Row> secondPrice = RebateCalculatorCache.getSparkDatasetCache("secondPrice");
-     		Dataset<org.apache.spark.sql.Row> yyyyPrice = RebateCalculatorCache.getSparkDatasetCache("yyyyPrice");
-     		Dataset<org.apache.spark.sql.Row> a = secondPrice.select("DIN_PIN","DIN_DESC","SECOND_PRICE","REC_EFF_DT","REC_CREATE_TIMESTAMP");
-   		
-     		Dataset<org.apache.spark.sql.Row> b = firstPrice.select("FIRST_PRICE","MANUFACTURER_CD");
-     		Dataset<org.apache.spark.sql.Row> c = yyyyPrice.select("YYYY_PRICE");
+     		Dataset<org.apache.spark.sql.Row> yyyyPrice = RebateCalculatorCache.getSparkDatasetCache("yyyyPrice");        //c
+     		Dataset<org.apache.spark.sql.Row> joinedClaimed = secondPrice.select("DIN_PIN","DIN_DESC","SECOND_PRICE","REC_EFF_DATE","REC_CREATE_TIMESTAMP");
+     		firstPrice = firstPrice.withColumnRenamed("DIN_DESC","b.DIN_DESC")
+     							   .withColumnRenamed("REC_EFF_DATE","b.REC_EFF_DATE")
+     							   .withColumnRenamed("REC_CREATE_TIMESTAMP","b.REC_CREATE_TIMESTAMP")
+     							   .withColumnRenamed("MANUFACTURER_CD", "b.MANUFACTURER_CD")
+     							   .withColumnRenamed("DIN_PIN","b_DIN_PIN");
      		
-     		temp02DS.join(temp03DS,temp02DS.col("DIN_PIN").equalTo(temp03DS.col("DIN_PIN")),"left_semi").join(temp99DS,temp02DS.col("DIN_PIN").equalTo(temp99DS.col("DIN_PIN")),"left_semi").show();
-               
-                 
+     		yyyyPrice = yyyyPrice.withColumnRenamed("DIN_DESC","c.DIN_DESC")
+					   .withColumnRenamed("REC_EFF_DATE","c.REC_EFF_DATE")
+					   .withColumnRenamed("REC_CREATE_TIMESTAMP","c.REC_CREATE_TIMESTAMP")
+					   .withColumnRenamed("MANUFACTURER_CD", "c.MANUFACTURER_CD")
+					   .withColumnRenamed("DIN_PIN","c_DIN_PIN");
+
+     		joinedClaimed = joinedClaimed.join(firstPrice,joinedClaimed.col("DIN_PIN").equalTo(firstPrice.col("b_DIN_PIN")),"full_outer")
+     						
+     								 .join(yyyyPrice,joinedClaimed.col("DIN_PIN").equalTo(yyyyPrice.col("c_DIN_PIN")),"full_outer");
+     		
+     		joinedClaimed = joinedClaimed.select("DIN_PIN","DIN_DESC","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","MANUFACTURER_CD").orderBy("DIN_PIN");
+     		joinedClaimed.show();
+     		RebateCalculatorCache.setSparkDatasetCache("joinedClaimed", joinedClaimed);
           }catch(Exception e){
                  e.printStackTrace();
                  throw e;
@@ -304,6 +320,19 @@ public class RebateEngineSpark {
           }
 }
 
+      
+      public static void step6and7(String manufacturerCode) throws Exception{
+          
+  
+
+        try{
+          
+        }catch(Exception e){
+               e.printStackTrace();
+               throw e;
+        }finally{
+        }
+}
 
   
   

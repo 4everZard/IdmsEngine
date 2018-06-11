@@ -35,6 +35,7 @@ import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.DataFrameReader;
 import org.apache.spark.sql.functions;
+
 import static org.apache.spark.sql.functions.date_sub;
 import static org.apache.spark.sql.functions.date_trunc;
 import static org.apache.spark.sql.functions.date_format;
@@ -42,7 +43,6 @@ import static org.apache.spark.sql.functions.to_date;
 import static org.apache.spark.sql.functions.trunc;
 import static org.apache.spark.sql.functions.col;
 import static org.apache.spark.sql.functions.max;
-
 import ca.on.moh.idms.util.RebateCalculatorCache;
 import ca.on.moh.idms.util.RebateConstant;
 import ca.on.moh.idms.util.RebateUtil;
@@ -123,6 +123,7 @@ public class RebateEngineSpark {
                calculator.step4(manufacturerCode);
                calculator.step5(manufacturerCode);
                calculator.step6and7(manufacturerCode);
+               calculator.step8(manufacturerCode);
                long endTime = System.currentTimeMillis();
                long timeSpent = (endTime - startTime)/1000;
                System.out.println("Total Time: " + timeSpent);
@@ -293,7 +294,7 @@ public class RebateEngineSpark {
           	Dataset<org.apache.spark.sql.Row> firstPrice = RebateCalculatorCache.getSparkDatasetCache("firstPrice");      //b
      		Dataset<org.apache.spark.sql.Row> secondPrice = RebateCalculatorCache.getSparkDatasetCache("secondPrice");
      		Dataset<org.apache.spark.sql.Row> yyyyPrice = RebateCalculatorCache.getSparkDatasetCache("yyyyPrice");        //c
-     		Dataset<org.apache.spark.sql.Row> joinedClaimed = secondPrice.select("DIN_PIN","DIN_DESC","SECOND_PRICE","REC_EFF_DATE","REC_CREATE_TIMESTAMP");
+     		Dataset<org.apache.spark.sql.Row> joinedClaimed = secondPrice.select("DIN_PIN","DIN_DESC","SECOND_PRICE","REC_EFF_DATE","REC_CREATE_TIMESTAMP","MANUFACTURER_CD");
      		firstPrice = firstPrice.withColumnRenamed("DIN_DESC","b.DIN_DESC")
      							   .withColumnRenamed("REC_EFF_DATE","b.REC_EFF_DATE")
      							   .withColumnRenamed("REC_CREATE_TIMESTAMP","b.REC_CREATE_TIMESTAMP")
@@ -323,15 +324,63 @@ public class RebateEngineSpark {
       
       public static void step6and7(String manufacturerCode) throws Exception{
           
-  
+    	  
+    	  String historyStartDate = ConfigFromDB.getConfigPropertyFromDB(RebateConstant.HISTORY_START_DATE);	//JUN 29 2015
+    	  String sql = "(select DIN_PIN, DRUG_BENEFIT_PRICE, YYYY_PRICE,STRENGTH,DOSAGE_FORM,GEN_NAME,CLAIM_START_DATE,CLAIM_END_DATE from SCHEDULE_A " +
+  				" where MANUFACTURER_CD = '" + manufacturerCode+ "' AND " +
+  			    "CLAIM_START_DATE < to_date('" + historyStartDate + "','MM-DD-YYYY') AND " +
+  			    "CLAIM_END_DATE > to_date('" + historyStartDate + "','MM-DD-YYYY'))";
+    	  
+    	  String dbpSql = "(select p.DIN_PIN, p.PRICE_LIM, p.REC_EFF_DT from ( " +
+					"select DIN_PIN,MAX(REC_EFF_DT) as REC_EFF_DATE from PCGLIMIT where MANUFACTURER_CD = '" + manufacturerCode+ "' AND " +
+				    "REC_EFF_DT < to_date('" + historyStartDate + "','MM-DD-YYYY') AND REC_INACTIVE_TIMESTAMP is NULL group by DIN_PIN) p1 " +
+				    "inner join PCGLIMIT p on p.DIN_PIN = p1.DIN_PIN and p.REC_EFF_DT = p1.REC_EFF_DATE)";
 
-        try{
-          
-        }catch(Exception e){
-               e.printStackTrace();
-               throw e;
-        }finally{
-        }
+          try{
+          	     System.out.println("Define Missing DB(TEMP 04)");
+                 Dataset<org.apache.spark.sql.Row> missingData = getDataset(sql);
+                 missingData = missingData.withColumnRenamed("DRUG_BENEFIT_PRICE", "FIRST_PRICE")
+		 				  .withColumnRenamed("DIN_PIN", "m_DIN_PIN");
+                 Dataset<org.apache.spark.sql.Row> dbpData = getDataset(dbpSql).select("DIN_PIN","PRICE_LIM");
+                 dbpData = dbpData.withColumnRenamed("PRICE_LIM", "DBP_LIM_JL115")
+                 		.withColumnRenamed("DIN_PIN", "d_DIN_PIN");
+                 /*missingData.show();
+                 dbpData.show();*/
+                 missingData = missingData.join(dbpData,missingData.col("m_DIN_PIN").equalTo(dbpData.col("d_DIN_PIN")));
+                 missingData = missingData.select("m_DIN_PIN","FIRST_PRICE","YYYY_PRICE","STRENGTH","DOSAGE_FORM","GEN_NAME","DBP_LIM_JL115");
+                 
+                 Dataset<org.apache.spark.sql.Row> joinedClaimed = RebateCalculatorCache.getSparkDatasetCache("joinedClaimed").select("DIN_PIN","DIN_DESC","SECOND_PRICE");
+                 missingData = joinedClaimed.join(missingData,missingData.col("m_DIN_PIN").equalTo(joinedClaimed.col("DIN_PIN")));
+                 missingData = missingData.select("DIN_PIN","DIN_DESC","GEN_NAME","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115","STRENGTH","DOSAGE_FORM").orderBy("DIN_PIN");
+                 RebateCalculatorCache.setSparkDatasetCache("missingData", missingData);
+                 missingData.show();
+          }catch(Exception e){
+                 e.printStackTrace();
+                 throw e;
+          }finally{
+          }
+}
+public static void step8(String manufacturerCode) throws Exception{
+
+          try{
+        	  System.out.println("creates a complete file of the initial claims extract and adds all the price components contained in the drug file ");
+        	  Dataset<org.apache.spark.sql.Row> a = RebateCalculatorCache.getSparkDatasetCache("qualifiedClaims");
+        	  
+        	  Dataset<org.apache.spark.sql.Row> b = RebateCalculatorCache.getSparkDatasetCache("missingData");
+        	  a = a.select("DIN_PIN","DRG_CST_ALLD","QTY","PROD_SEL","PROF_FEE_ALLD","INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4",
+        			  "INTERVENTION_5","INTERVENTION_6","INTERVENTION_7","INTERVENTION_8","INTERVENTION_9","INTERVENTION_10");
+        	  b = b.select("DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115");
+        	  b = b.withColumnRenamed("DIN_PIN", "b_DIN_PIN");
+        	  Dataset<org.apache.spark.sql.Row> completeClaims = a.join(b,a.col("DIN_PIN").equalTo(b.col("b_DIN_PIN")));
+        	  completeClaims = completeClaims.select("DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115",
+        			  "DRG_CST_ALLD","QTY","PROD_SEL","PROF_FEE_ALLD","INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4","INTERVENTION_5","INTERVENTION_6",
+        			  "INTERVENTION_7","INTERVENTION_8","INTERVENTION_9","INTERVENTION_10").orderBy("DIN_PIN");
+        	  completeClaims.show();
+          }catch(Exception e){
+                 e.printStackTrace();
+                 throw e;
+          }finally{
+          }
 }
 
   

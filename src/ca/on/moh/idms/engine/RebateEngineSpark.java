@@ -124,6 +124,7 @@ public class RebateEngineSpark {
                calculator.step5(manufacturerCode);
                calculator.step6and7(manufacturerCode);
                calculator.step8(manufacturerCode);
+               calculator.step9(manufacturerCode);
                long endTime = System.currentTimeMillis();
                long timeSpent = (endTime - startTime)/1000;
                System.out.println("Total Time: " + timeSpent);
@@ -381,6 +382,31 @@ public static void step8(String manufacturerCode) throws Exception{
                  throw e;
           }finally{
           }
+}
+
+public static void step9(String manufacturerCode) throws Exception{
+	String sql = "Insert into TEMP06 (CLAIM_ID,DIN_PIN,DIN_DESC,GEN_NAME,STRENGTH, DOSAGE_FORM," +
+			"FIRST_PRICE,SECOND_PRICE,YYYY_PRICE,DBP_LIM_JL115,DRG_CST_ALLD,QTY,PROD_SEL,MANUFACTURER_CD,PROF_FEE_ALLD,TOT_AMT_PD, " +
+			"INTERVENTION_1,INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6," +
+			"INTERVENTION_7,INTERVENTION_8,INTERVENTION_9,INTERVENTION_10) " +
+			"select CLAIM_ID,DIN_PIN,DIN_DESC,GEN_NAME,STRENGTH, DOSAGE_FORM,FIRST_PRICE,SECOND_PRICE,YYYY_PRICE,DBP_LIM_JL115," +
+			"DRG_CST_ALLD,QTY,PROD_SEL,MANUFACTURER_CD,PROF_FEE_ALLD,TOT_AMT_PD, " +
+			"INTERVENTION_1,INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6, " +
+			"INTERVENTION_7,INTERVENTION_8,INTERVENTION_9,INTERVENTION_10 from TEMP05 " +
+			"where DBP_LIM_JL115  = SECOND_PRICE or  " +
+			"(DBP_LIM_JL115  < SECOND_PRICE and (PROD_SEL = '1' or  INTERVENTION_1 = 'MI' or  INTERVENTION_2 = 'MI' " +
+			"or  INTERVENTION_3 = 'MI' or  INTERVENTION_4 = 'MI' or  INTERVENTION_5 = 'MI' or  INTERVENTION_6 = 'MI'))";
+			//"where MANUFACTURER_CD = '" + manufacturerCode + "'";
+    try{
+  	  System.out.println("uses selection criteria to include only claims that meet the requirements for agreement reconciliation");
+  	  Dataset<org.apache.spark.sql.Row> a = RebateCalculatorCache.getSparkDatasetCache("completeClaims");
+  	 Dataset<org.apache.spark.sql.Row> conditionalClaims = a.select("*").where(col("DBP_LIM_JL115").lt(col("SECOND_PRICE")));
+  	 
+    }catch(Exception e){
+           e.printStackTrace();
+           throw e;
+    }finally{
+    }
 }
 
   

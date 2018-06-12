@@ -377,6 +377,7 @@ public static void step8(String manufacturerCode) throws Exception{
         			  "DRG_CST_ALLD","QTY","PROD_SEL","PROF_FEE_ALLD","INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4","INTERVENTION_5","INTERVENTION_6",
         			  "INTERVENTION_7","INTERVENTION_8","INTERVENTION_9","INTERVENTION_10").orderBy("DIN_PIN");
         	  completeClaims.show();
+        	  RebateCalculatorCache.setSparkDatasetCache("completeClaims",completeClaims);
           }catch(Exception e){
                  e.printStackTrace();
                  throw e;
@@ -400,8 +401,17 @@ public static void step9(String manufacturerCode) throws Exception{
     try{
   	  System.out.println("uses selection criteria to include only claims that meet the requirements for agreement reconciliation");
   	  Dataset<org.apache.spark.sql.Row> a = RebateCalculatorCache.getSparkDatasetCache("completeClaims");
-  	 Dataset<org.apache.spark.sql.Row> conditionalClaims = a.select("*").where(col("DBP_LIM_JL115").lt(col("SECOND_PRICE")));
-  	 
+  	 Dataset<org.apache.spark.sql.Row> conditionalClaims = a.select("*").where(col("DBP_LIM_JL115").equalTo(col("SECOND_PRICE"))
+  			 																	.or(col("DBP_LIM_JL115").lt(col("SECOND_PRICE"))
+  			 																	.and(col("PROD_SEL").equalTo(1).or(col("INTERVENTION_1").equalTo("MI"))
+  			 																								   .or(col("INTERVENTION_2").equalTo("MI"))
+  			 																								   .or(col("INTERVENTION_3").equalTo("MI"))
+  			 																								   .or(col("INTERVENTION_4").equalTo("MI"))
+  			 																								   .or(col("INTERVENTION_5").equalTo("MI"))
+  			 																								   .or(col("INTERVENTION_6").equalTo("MI")))));
+  	conditionalClaims.show();	 																									
+  	 RebateCalculatorCache.setSparkDatasetCache("conditionalClaims",conditionalClaims);		 																			
+ 
     }catch(Exception e){
            e.printStackTrace();
            throw e;

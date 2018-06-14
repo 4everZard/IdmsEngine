@@ -43,6 +43,11 @@ import static org.apache.spark.sql.functions.to_date;
 import static org.apache.spark.sql.functions.trunc;
 import static org.apache.spark.sql.functions.col;
 import static org.apache.spark.sql.functions.max;
+import static org.apache.spark.sql.functions.bround;
+
+import org.apache.spark.sql.api.java.UDF1;
+import org.apache.spark.sql.expressions.Window;
+
 import ca.on.moh.idms.util.RebateCalculatorCache;
 import ca.on.moh.idms.util.RebateConstant;
 import ca.on.moh.idms.util.RebateUtil;
@@ -61,8 +66,7 @@ public class RebateEngineSpark {
 		      .builder()
 		      .appName("Java Spark SQL data sources example")
 		      .config("spark.some.config.option", "some-value")
-		      .master("local[1]")
-		      
+		      .master("local[1]")	      
 		      .getOrCreate();
 
 	
@@ -125,6 +129,10 @@ public class RebateEngineSpark {
                calculator.step6and7(manufacturerCode);
                calculator.step8(manufacturerCode);
                calculator.step9(manufacturerCode);
+               calculator.step10(manufacturerCode);
+               /*calculator.step11(manufacturerCode);
+               calculator.step12(manufacturerCode);
+               calculator.step13(manufacturerCode);*/
                long endTime = System.currentTimeMillis();
                long timeSpent = (endTime - startTime)/1000;
                System.out.println("Total Time: " + timeSpent);
@@ -172,10 +180,11 @@ public class RebateEngineSpark {
         try{
 
                Dataset<org.apache.spark.sql.Row> qualifiedClaims = getDataset(sql);
-            RebateCalculatorCache.setSparkDatasetCache("QUALIFIED_CLAIMS", qualifiedClaims);
-            System.out.println("All Qualified Claims for " + manufacturerCode);
-            qualifiedClaims.show();
-            RebateCalculatorCache.setSparkDatasetCache("qualifiedClaims", qualifiedClaims);
+               qualifiedClaims = qualifiedClaims.withColumn("CLAIM_ID", functions.row_number().over(Window.orderBy("DIN_PIN")));                
+               RebateCalculatorCache.setSparkDatasetCache("QUALIFIED_CLAIMS", qualifiedClaims);
+               System.out.println("All Qualified Claims for " + manufacturerCode);
+               qualifiedClaims.show();
+               RebateCalculatorCache.setSparkDatasetCache("qualifiedClaims", qualifiedClaims);
 
         }catch(Exception e){
                e.printStackTrace();
@@ -364,16 +373,16 @@ public class RebateEngineSpark {
 public static void step8(String manufacturerCode) throws Exception{
 
           try{
-        	  System.out.println("creates a complete file of the initial claims extract and adds all the price components contained in the drug file ");
+        	  System.out.println("creates a complete file of the initial claims extract and adds all the price components contained in the drug file ---TEMP05 ");
         	  Dataset<org.apache.spark.sql.Row> a = RebateCalculatorCache.getSparkDatasetCache("qualifiedClaims");
         	  
         	  Dataset<org.apache.spark.sql.Row> b = RebateCalculatorCache.getSparkDatasetCache("missingData");
-        	  a = a.select("DIN_PIN","DRG_CST_ALLD","QTY","PROD_SEL","PROF_FEE_ALLD","INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4",
+        	  a = a.select("CLAIM_ID","DIN_PIN","DRG_CST_ALLD","QTY","PROD_SEL","PROF_FEE_ALLD","INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4",
         			  "INTERVENTION_5","INTERVENTION_6","INTERVENTION_7","INTERVENTION_8","INTERVENTION_9","INTERVENTION_10");
         	  b = b.select("DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115");
         	  b = b.withColumnRenamed("DIN_PIN", "b_DIN_PIN");
         	  Dataset<org.apache.spark.sql.Row> completeClaims = a.join(b,a.col("DIN_PIN").equalTo(b.col("b_DIN_PIN")));
-        	  completeClaims = completeClaims.select("DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115",
+        	  completeClaims = completeClaims.select("CLAIM_ID","DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115",
         			  "DRG_CST_ALLD","QTY","PROD_SEL","PROF_FEE_ALLD","INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4","INTERVENTION_5","INTERVENTION_6",
         			  "INTERVENTION_7","INTERVENTION_8","INTERVENTION_9","INTERVENTION_10").orderBy("DIN_PIN");
         	  completeClaims.show();
@@ -399,7 +408,7 @@ public static void step9(String manufacturerCode) throws Exception{
 			"or  INTERVENTION_3 = 'MI' or  INTERVENTION_4 = 'MI' or  INTERVENTION_5 = 'MI' or  INTERVENTION_6 = 'MI'))";
 			//"where MANUFACTURER_CD = '" + manufacturerCode + "'";
     try{
-  	  System.out.println("uses selection criteria to include only claims that meet the requirements for agreement reconciliation");
+  	  System.out.println("uses selection criteria to include only claims that meet the requirements for agreement reconciliation ---- TEMP06");
   	  Dataset<org.apache.spark.sql.Row> a = RebateCalculatorCache.getSparkDatasetCache("completeClaims");
   	 Dataset<org.apache.spark.sql.Row> conditionalClaims = a.select("*").where(col("DBP_LIM_JL115").equalTo(col("SECOND_PRICE"))
   			 																	.or(col("DBP_LIM_JL115").lt(col("SECOND_PRICE"))
@@ -412,6 +421,60 @@ public static void step9(String manufacturerCode) throws Exception{
   	conditionalClaims.show();	 																									
   	 RebateCalculatorCache.setSparkDatasetCache("conditionalClaims",conditionalClaims);		 																			
  
+    }catch(Exception e){
+           e.printStackTrace();
+           throw e;
+    }finally{
+    }
+}
+
+public static void step10(String manufacturerCode) throws Exception{
+	String sql = "insert into TEMP07 (CLAIM_ID,DIN_PIN,DIN_DESC,GEN_NAME,STRENGTH,DOSAGE_FORM,FIRST_PRICE,SECOND_PRICE,YYYY_PRICE," +
+			"DBP_LIM_JL115,DRG_CST_ALLD,QTY,PROD_SEL,MANUFACTURER_CD,PROF_FEE_ALLD,TOT_AMT_PD,INTERVENTION_1," +
+			"INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6,REC_EFF_DT,REC_CREATE_TIMESTAMP) " +
+			"select CLAIM_ID,DIN_PIN,DIN_DESC,GEN_NAME,STRENGTH,DOSAGE_FORM,FIRST_PRICE,SECOND_PRICE,YYYY_PRICE," +
+			"DBP_LIM_JL115,DRG_CST_ALLD,QTY,PROD_SEL,MANUFACTURER_CD,PROF_FEE_ALLD,TOT_AMT_PD,INTERVENTION_1," +
+			"INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6,REC_EFF_DT,REC_CREATE_TIMESTAMP  from TEMP06";
+    try{
+  	  System.out.println(" calculates an adjusted quantity ---- TEMP07");
+  	  Dataset<org.apache.spark.sql.Row> a = RebateCalculatorCache.getSparkDatasetCache("adjustedQuantity");
+  	  Dataset<org.apache.spark.sql.Row> adjustedQuantity = a.select("CLAIM_ID","DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE",
+  			  "YYYY_PRICE","DBP_LIM_JL115","DRG_CST_ALLD","QTY","PROD_SEL","PROF_FEE_ALLD","INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4",
+  			  "INTERVENTION_5","INTERVENTION_6");
+	  
+  	adjustedQuantity = adjustedQuantity.withColumn("ADJ_QTY", bround(col("DRG_CST_ALLD").divide(col("SECOND_PRICE")),1));
+  	adjustedQuantity = adjustedQuantity.withColumn("FNL_QTY",col("ADJ_QTY"));  	
+  	adjustedQuantity = adjustedQuantity.withColumn("FNL_QTY",functions.when(col("FNL_QTY").gt(col("QTY")),col("QTY")).otherwise(col("ADJ_QTY")));															   
+  	adjustedQuantity.show();	
+  	RebateCalculatorCache.setSparkDatasetCache("adjustedQuantity",adjustedQuantity);
+  	
+    }catch(Exception e){
+           e.printStackTrace();
+           throw e;
+    }finally{
+    }
+}
+
+public static void step11(String manufacturerCode) throws Exception{
+	String sql = "insert into TEMP07 (CLAIM_ID,DIN_PIN,DIN_DESC,GEN_NAME,STRENGTH,DOSAGE_FORM,FIRST_PRICE,SECOND_PRICE,YYYY_PRICE," +
+			"DBP_LIM_JL115,DRG_CST_ALLD,QTY,PROD_SEL,MANUFACTURER_CD,PROF_FEE_ALLD,TOT_AMT_PD,INTERVENTION_1," +
+			"INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6,REC_EFF_DT,REC_CREATE_TIMESTAMP) " +
+			"select CLAIM_ID,DIN_PIN,DIN_DESC,GEN_NAME,STRENGTH,DOSAGE_FORM,FIRST_PRICE,SECOND_PRICE,YYYY_PRICE," +
+			"DBP_LIM_JL115,DRG_CST_ALLD,QTY,PROD_SEL,MANUFACTURER_CD,PROF_FEE_ALLD,TOT_AMT_PD,INTERVENTION_1," +
+			"INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6,REC_EFF_DT,REC_CREATE_TIMESTAMP  from TEMP06";
+    try{
+  	  System.out.println(" calculates an adjusted quantity ---- TEMP07");
+  	  Dataset<org.apache.spark.sql.Row> a = RebateCalculatorCache.getSparkDatasetCache("adjustedQuantity");
+  	  Dataset<org.apache.spark.sql.Row> adjustedQuantity = a.select("CLAIM_ID","DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE",
+  			  "YYYY_PRICE","DBP_LIM_JL115","DRG_CST_ALLD","QTY","PROD_SEL","PROF_FEE_ALLD","INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4",
+  			  "INTERVENTION_5","INTERVENTION_6");
+	  
+  	adjustedQuantity = adjustedQuantity.withColumn("ADJ_QTY", bround(col("DRG_CST_ALLD").divide(col("SECOND_PRICE")),1));
+  	adjustedQuantity = adjustedQuantity.withColumn("FNL_QTY",col("ADJ_QTY"));  	
+  	adjustedQuantity = adjustedQuantity.withColumn("FNL_QTY",functions.when(col("FNL_QTY").gt(col("QTY")),col("QTY")).otherwise(col("ADJ_QTY")));															   
+  	adjustedQuantity.show();	
+  	RebateCalculatorCache.setSparkDatasetCache("adjustedQuantity",adjustedQuantity);
+  	
     }catch(Exception e){
            e.printStackTrace();
            throw e;

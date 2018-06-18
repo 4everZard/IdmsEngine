@@ -28,6 +28,8 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoders;
+import org.apache.spark.sql.RelationalGroupedDataset;
 import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
@@ -131,8 +133,8 @@ public class RebateEngineSpark {
                calculator.step9(manufacturerCode);
                calculator.step10(manufacturerCode);
                calculator.step11(manufacturerCode);
-               /*calculator.step12(manufacturerCode);
-               calculator.step13(manufacturerCode);*/
+               calculator.step12(manufacturerCode);
+               calculator.step13(manufacturerCode);
                long endTime = System.currentTimeMillis();
                long timeSpent = (endTime - startTime)/1000;
                System.out.println("Total Time: " + timeSpent);
@@ -488,11 +490,45 @@ public static void step12(String manufacturerCode) throws Exception{
 			"inner join DRUG_REBATE b  on a.DIN_PIN = b.DIN_PIN order by b.DIN_PIN";
     try{
   	  System.out.println(" creates a new file with the volume discount amount included for each individual claim ---- TEMP09");
-  	  Dataset<org.apache.spark.sql.Row> temp09 = RebateCalculatorCache.getSparkDatasetCache("drugRebate");
-  	  
-  	  
-  	  
+  	  Dataset<org.apache.spark.sql.Row> b = RebateCalculatorCache.getSparkDatasetCache("drugRebate");
+  	  Dataset<org.apache.spark.sql.Row> a = b.groupBy(col("DIN_PIN")).sum("CHQ_BACK","FNL_QTY","ADJ_QTY","QTY","DRG_CST_ALLD").distinct();
+  	  a = a.withColumnRenamed("sum(CHQ_BACK)", "CHQ_BACK")
+  		   .withColumnRenamed("sum(FNL_QTY)", "FNL_QTY")
+  		   .withColumnRenamed("sum(ADJ_QTY)", "ADJ_QTY")
+  		   .withColumnRenamed("sum(QTY)", "QTY")
+  		   .withColumnRenamed("sum(DRG_CST_ALLD)", "DRG_CST_ALLD")
+  	       .withColumnRenamed("DIN_PIN","a_DIN_PIN");  	 
+  	  Dataset<org.apache.spark.sql.Row> temp09 = b.select("DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115","IS_TWO_PRICE").distinct(); 
+  	  temp09 = temp09.join(a,a.col("a_DIN_PIN").equalTo(temp09.col("DIN_PIN")),"full_outer").orderBy("DIN_PIN");
+  	  temp09 = temp09.drop(col("a_DIN_PIN"));		
   	  temp09.show();
+  	 /* c = c.join(b,c.col("a_DIN_PIN").equalTo(b.col("DIN_PIN"))).orderBy(b.col("DIN_PIN"));
+  	  c.show();*/
+  	RebateCalculatorCache.setSparkDatasetCache("temp09",temp09);
+  	  
+    }catch(Exception e){
+           e.printStackTrace();
+           throw e;
+    }finally{
+    }
+}
+
+public static void step13(String manufacturerCode) throws Exception{
+    try{
+  	  System.out.println("  joins the summarized data to the drug file that was created earlier. ---- TEMP11");
+  	  Dataset<org.apache.spark.sql.Row> rebateSummary = RebateCalculatorCache.getSparkDatasetCache("drugRebate");
+  	  Dataset<org.apache.spark.sql.Row> distinctDin_Pin = rebateSummary.select("DIN_PIN").distinct();
+  	 
+  	  distinctDin_Pin.show();
+  	  distinctDin_Pin.printSchema();
+  	  String sql = "(select DIN_PIN, YYYY_PRICE from SCHEDULE_A)";
+  	  Dataset<org.apache.spark.sql.Row> a = getDataset(sql);
+  	  a.show();
+  	  a.printSchema();
+  	  /*String list = distinctDin_Pin.as(Encoders.STRING()).collectAsList().toString();
+  	  System.out.println(list);*/
+  	  a = a.select("DIN_PIN","YYYY_PRICE").filter(a.col("DIN_PIN").isin(functions.lit(distinctDin_Pin.col("DIN_PIN"))).equalTo(false));
+  	  a.show();
     }catch(Exception e){
            e.printStackTrace();
            throw e;

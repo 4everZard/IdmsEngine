@@ -527,7 +527,8 @@ public static void step13(String manufacturerCode) throws Exception{
   	  
   			  	
   	  Dataset<org.apache.spark.sql.Row> distinctDin_Pin = rebateSummary.select("DIN_PIN").distinct();
-
+  	  rebateSummary = rebateSummary.dropDuplicates("DIN_PIN");
+  	  
   	  String sql = "(select DIN_PIN, YYYY_PRICE from SCHEDULE_A)";
   	  Dataset<org.apache.spark.sql.Row> a = getDataset(sql);
     	 
@@ -546,12 +547,12 @@ public static void step13(String manufacturerCode) throws Exception{
   		   .withColumn("DRG_CST_ALLD",functions.lit(null).cast(DataTypes.StringType))
   		   .withColumn("PROD_SEL",functions.lit(null).cast(DataTypes.StringType)).withColumn("PROF_FEE_ALLD",functions.lit(null).cast(DataTypes.StringType));
   	  a = a.select("DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115","DRG_CST_ALLD"
-  			  ,"QTY","PROD_SEL","PROF_FEE_ALLD","ADJ_QTY","FNL_QTY","IS_TWO_PRICE","IS_TWO_PRICE","CHQ_BACK");
-  	  distinctDin_Pin.show();
-  	  rebateSummary = distinctDin_Pin.union(a);		
+  			  ,"QTY","PROD_SEL","PROF_FEE_ALLD","ADJ_QTY","FNL_QTY","IS_TWO_PRICE","CHQ_BACK");
+  	  
+  	  rebateSummary = rebateSummary.union(a);		
   	  rebateSummary = rebateSummary.withColumn("CLAIM_ID", functions.row_number().over(Window.orderBy("DIN_PIN")));	 
   	  rebateSummary = rebateSummary.select("CLAIM_ID","DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115","DRG_CST_ALLD"
-  			  ,"QTY","PROD_SEL","PROF_FEE_ALLD","ADJ_QTY","FNL_QTY","CHQ_BACK");
+  			  ,"QTY","PROD_SEL","PROF_FEE_ALLD","ADJ_QTY","FNL_QTY","IS_TWO_PRICE","CHQ_BACK");
   	  rebateSummary.show();
   	  RebateCalculatorCache.setSparkDatasetCache("rebateSummary",rebateSummary);
   	  

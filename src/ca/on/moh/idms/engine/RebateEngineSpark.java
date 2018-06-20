@@ -55,6 +55,9 @@ import ca.on.moh.idms.util.RebateConstant;
 import ca.on.moh.idms.util.RebateUtil;
 import ca.on.moh.idms.util.SparkDatabaseConnection;
 import ca.on.moh.idms.vo.RebateVO;
+import scala.collection.JavaConversions;
+import scala.collection.immutable.Seq;
+import scala.collection.JavaConverters;
 
 public class RebateEngineSpark {
 
@@ -296,10 +299,6 @@ public class RebateEngineSpark {
   }    
       public static void step5(String manufacturerCode) throws Exception{
           
-    		/*String sql = "select a.DIN_PIN,a.DIN_DESC, b.FIRST_PRICE, a.SECOND_PRICE, c.YYYY_PRICE, a.REC_EFF_DT,a.REC_CREATE_TIMESTAMP,b.MANUFACTURER_CD from TEMP02 a " +
-					"join TEMP03 b on a.DIN_PIN = b.DIN_PIN " +
-					"join Temp99 c on a.DIN_PIN = c.DIN_PIN " +
-					"order by a.DIN_PIN";*/
 
           try{
           	System.out.println("Join the 3 previously created temporary drug files together");
@@ -513,26 +512,53 @@ public static void step12(String manufacturerCode) throws Exception{
     }
 }
 
+
 public static void step13(String manufacturerCode) throws Exception{
     try{
   	  System.out.println("  joins the summarized data to the drug file that was created earlier. ---- TEMP11");
   	  Dataset<org.apache.spark.sql.Row> rebateSummary = RebateCalculatorCache.getSparkDatasetCache("drugRebate");
+  	  rebateSummary = rebateSummary.drop(col("INTERVENTION_1"))
+  			  					   .drop(col("INTERVENTION_2"))
+  			  					   .drop(col("INTERVENTION_3"))
+  			  					   .drop(col("INTERVENTION_4"))
+  			  					   .drop(col("INTERVENTION_5"))
+  			  					   .drop(col("INTERVENTION_6"))
+  			  					   .drop(col("CLAIM_ID"));
+  	  
+  			  	
   	  Dataset<org.apache.spark.sql.Row> distinctDin_Pin = rebateSummary.select("DIN_PIN").distinct();
-  	 
-  	  distinctDin_Pin.show();
-  	  distinctDin_Pin.printSchema();
+
   	  String sql = "(select DIN_PIN, YYYY_PRICE from SCHEDULE_A)";
   	  Dataset<org.apache.spark.sql.Row> a = getDataset(sql);
-  	  a.show();
-  	  a.printSchema();
-  	  /*String list = distinctDin_Pin.as(Encoders.STRING()).collectAsList().toString();
-  	  System.out.println(list);*/
-  	  a = a.select("DIN_PIN","YYYY_PRICE").filter(a.col("DIN_PIN").isin(functions.lit(distinctDin_Pin.col("DIN_PIN"))).equalTo(false));
-  	  a.show();
+    	 
+  	  a = a.join(distinctDin_Pin,a.col("DIN_PIN").equalTo(distinctDin_Pin.col("DIN_PIN")),"left_anti").orderBy("DIN_PIN");
+  	  
+  	  
+  	  a = a.withColumn("IS_TWO_PRICE", functions.when(col("YYYY_PRICE").isNull(), "Y").otherwise("N"));
+  	  a = a.drop(col("YYYY_PRICE"));
+  	  
+  	  a = a.withColumn("DIN_DESC", functions.lit(null).cast(DataTypes.StringType)).withColumn("GEN_NAME",functions.lit(null).cast(DataTypes.StringType))
+  		   .withColumn("STRENGTH",functions.lit(null).cast(DataTypes.StringType)).withColumn("DOSAGE_FORM",functions.lit(null).cast(DataTypes.StringType))
+  		   .withColumn("FIRST_PRICE",functions.lit(null).cast(DataTypes.StringType)).withColumn("SECOND_PRICE",functions.lit(null).cast(DataTypes.StringType))
+  		   .withColumn("YYYY_PRICE",functions.lit(null).cast(DataTypes.StringType)).withColumn("DBP_LIM_JL115",functions.lit(null).cast(DataTypes.StringType))
+  		   .withColumn("CHQ_BACK",functions.lit(null).cast(DataTypes.StringType)).withColumn("ADJ_QTY",functions.lit(null).cast(DataTypes.StringType))
+  		   .withColumn("FNL_QTY",functions.lit(null).cast(DataTypes.StringType)).withColumn("QTY",functions.lit(null).cast(DataTypes.StringType))
+  		   .withColumn("DRG_CST_ALLD",functions.lit(null).cast(DataTypes.StringType))
+  		   .withColumn("PROD_SEL",functions.lit(null).cast(DataTypes.StringType)).withColumn("PROF_FEE_ALLD",functions.lit(null).cast(DataTypes.StringType));
+  	  a = a.select("DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115","DRG_CST_ALLD"
+  			  ,"QTY","PROD_SEL","PROF_FEE_ALLD","ADJ_QTY","FNL_QTY","IS_TWO_PRICE","IS_TWO_PRICE","CHQ_BACK");
+  	  distinctDin_Pin.show();
+  	  rebateSummary = distinctDin_Pin.union(a);		
+  	  rebateSummary = rebateSummary.withColumn("CLAIM_ID", functions.row_number().over(Window.orderBy("DIN_PIN")));	 
+  	  rebateSummary = rebateSummary.select("CLAIM_ID","DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115","DRG_CST_ALLD"
+  			  ,"QTY","PROD_SEL","PROF_FEE_ALLD","ADJ_QTY","FNL_QTY","CHQ_BACK");
+  	  rebateSummary.show();
+  	  RebateCalculatorCache.setSparkDatasetCache("rebateSummary",rebateSummary);
+  	  
     }catch(Exception e){
            e.printStackTrace();
            throw e;
-    }finally{
+    }finally{	
     }
 }
 

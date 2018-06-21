@@ -71,7 +71,7 @@ public class RebateEngineSpark {
 		      .builder()
 		      .appName("Java Spark SQL data sources example")
 		      .config("spark.some.config.option", "some-value")
-		      .master("local[1]")	      
+		      .master("local[*]")	      
 		      .getOrCreate();
 
 	
@@ -190,7 +190,7 @@ public class RebateEngineSpark {
                System.out.println("All Qualified Claims for " + manufacturerCode);
                qualifiedClaims.show();
                RebateCalculatorCache.setSparkDatasetCache("qualifiedClaims", qualifiedClaims);
-
+               qualifiedClaims.cache();
         }catch(Exception e){
                e.printStackTrace();
                throw e;
@@ -223,6 +223,7 @@ public class RebateEngineSpark {
                System.out.println("First Price of Drug ");
                firstPrice.show();
                RebateCalculatorCache.setSparkDatasetCache("firstPrice", firstPrice);
+               firstPrice.cache();
         }catch(Exception e){
                e.printStackTrace();
                throw e;
@@ -258,6 +259,7 @@ public class RebateEngineSpark {
             		   																  ,"left_semi").orderBy("DIN_PIN");    		   						   					 
                secondPrice.show(); 
                RebateCalculatorCache.setSparkDatasetCache("secondPrice", secondPrice);
+               secondPrice.cache();
         }catch(Exception e){
                e.printStackTrace();
                throw e;
@@ -291,6 +293,7 @@ public class RebateEngineSpark {
       		   						   					 
              yyyyPrice.show();
              RebateCalculatorCache.setSparkDatasetCache("yyyyPrice", yyyyPrice);
+             yyyyPrice.cache();
       }catch(Exception e){
              e.printStackTrace();
              throw e;
@@ -1629,7 +1632,7 @@ public static void step13(String manufacturerCode) throws Exception{
 		            cell7.setCellValue(formerDBP);
 		            Cell cell8 = row.createCell(colNum++);
 		            cell8.setCellValue(currentDBP);
-		            Cell cell9 = row.createCell(colNum++);
+		            Cell cell9 = row.createCell(colNum++);	
 		            cell9.setCellValue(quantity);
 		            Cell cell10 = row.createCell(colNum++);
 		            cell10.setCellValue(volumeDiscouny);

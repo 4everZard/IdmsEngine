@@ -79,13 +79,12 @@ public class test {
         System.out.println("Calculation engine started ...... ");
         
         PropertyConfig.setPropertyPath(appRoot + "\\conf\\system.properties");
-        System.setProperty("hadoop.home.dir", "C:\\Spark\\hadoop");
+        System.setProperty("hadoop.home.dir", "C:\\Spark\\spark-2.3.0-bin-hadoop2.7\\spark-2.3.0-bin-hadoop2.7");
         
         test calculator = new test();
         String manufacturerCode = "LEO";
         
-        Connection conn1 = null;
-        Connection conn2 = null;
+      
         try{
                long startTime = System.currentTimeMillis();
                
@@ -97,9 +96,8 @@ public class test {
                
         }catch(Exception e){
                e.printStackTrace();
-        }finally{
-               DBConnectionManager.getManager().closeConnection(conn1, null, null);
-               DBConnectionManager.getManager().closeConnection(conn2, null, null);
+        }finally{	
+              
         }
         System.out.println("Calculation Completed. ");
   }
@@ -172,7 +170,7 @@ public class test {
 	               qualifiedClaims.cache();
 	               qualifiedClaims = qualifiedClaims.withColumn("CLAIM_ID", functions.row_number().over(Window.orderBy("DIN_PIN")));                
 	               System.out.println("All Qualified Claims for " + manufacturerCode);
-	               qualifiedClaims.show();
+	               //qualifiedClaims.show();
 
 	               
 	               
@@ -188,7 +186,7 @@ public class test {
 	             		   															     .and(rawFirstPrice.col("REC_EFF_DATE").equalTo(firstPrice.col("REC_EFF_DATE")))
 	             		   															     ,"left_semi").orderBy("DIN_PIN");    				
 	                System.out.println("First Price of Drug ");
-	                firstPrice.show();
+	                //firstPrice.show();
       
 	               
 	               
@@ -206,7 +204,7 @@ public class test {
 	             		   																  .and(rawSecondPrice.col("DIN_PIN").equalTo(secondPrice.col("DIN_PIN")))
 	             		   																  .and(rawSecondPrice.col("REC_EFF_DATE").equalTo(secondPrice.col("REC_EFF_DATE")))
 	             		   																  ,"left_semi").orderBy("DIN_PIN");    		   						   					 
-	                secondPrice.show(); 
+	               // secondPrice.show(); 
 
 	               
 	             // step4 ************************************************************
@@ -225,7 +223,7 @@ public class test {
 	   																  ,"left_semi").orderBy("DIN_PIN");  
 	             		   																 
 	         		   						   					 
-	                yyyyPrice.show();
+	               // yyyyPrice.show();
    
 	               
 	               
@@ -251,7 +249,7 @@ public class test {
 	         								 .join(yyyyPrice,joinedClaimed.col("DIN_PIN").equalTo(yyyyPrice.col("c_DIN_PIN")),"full_outer");
 	         		
 	         		joinedClaimed = joinedClaimed.select("DIN_PIN","DIN_DESC","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","MANUFACTURER_CD").orderBy("DIN_PIN");
-	         		joinedClaimed.show();
+	         		//joinedClaimed.show();
 
 	               
 	         	// step6 ************************************************************
@@ -270,9 +268,9 @@ public class test {
 	                 joinedClaimed = joinedClaimed.select("DIN_PIN","DIN_DESC","SECOND_PRICE");
 	                 missingData = joinedClaimed.join(missingData,missingData.col("m_DIN_PIN").equalTo(joinedClaimed.col("DIN_PIN")));
 	                 missingData = missingData.select("DIN_PIN","DIN_DESC","GEN_NAME","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115","STRENGTH","DOSAGE_FORM").orderBy("DIN_PIN");
-	                 missingData.show();	
+	                 //missingData.show();	
 	                 
-	         		
+	                 	
 	         	// step8 ************************************************************
 	         		
 	                 System.out.println("creates a complete file of the initial claims extract and adds all the price components contained in the drug file ---TEMP05 ");
@@ -285,7 +283,7 @@ public class test {
 	           	  completeClaims = completeClaims.select("CLAIM_ID","DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115",
 	           			  "DRG_CST_ALLD","QTY","PROD_SEL","PROF_FEE_ALLD","INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4","INTERVENTION_5","INTERVENTION_6",
 	           			  "INTERVENTION_7","INTERVENTION_8","INTERVENTION_9","INTERVENTION_10").orderBy("DIN_PIN");
-	           	  completeClaims.show();
+	           	  //completeClaims.show();
   	
 	         	
 	           	
@@ -303,7 +301,7 @@ public class test {
 	        			 																								   .or(col("INTERVENTION_5").equalTo("MI"))
 	        			 																								   .or(col("INTERVENTION_6").equalTo("MI")))));
 	        	 conditionalClaims.cache();
-	        	conditionalClaims.show();	 																									
+	        	//conditionalClaims.show();	 																									
 	
 	        	
 	        	
@@ -318,7 +316,7 @@ public class test {
 	         	adjustedQuantity = adjustedQuantity.withColumn("ADJ_QTY", bround(col("DRG_CST_ALLD").divide(col("SECOND_PRICE")),1));
 	         	adjustedQuantity = adjustedQuantity.withColumn("FNL_QTY",col("ADJ_QTY"));  	
 	         	adjustedQuantity = adjustedQuantity.withColumn("FNL_QTY",functions.when(col("FNL_QTY").gt(col("QTY")),col("QTY")).otherwise(col("ADJ_QTY")));															   
-	         	adjustedQuantity.show();	
+	         	//adjustedQuantity.show();	
 
 	         		
 	         	// step11 ************************************************************
@@ -336,7 +334,7 @@ public class test {
 	         	 drugRebate = drugRebate.withColumn("CHQ_BACK",bround(col("CHQ_BACK"),4));
 	         	  
 	         	  
-	         	  drugRebate.show();
+	         	  //drugRebate.show();
 	         	  
 	         	  
 	         	// step12************************************************************
@@ -355,21 +353,15 @@ public class test {
 	         	 temp09.cache();
 	         	  temp09 = temp09.join(a,a.col("a_DIN_PIN").equalTo(temp09.col("DIN_PIN")),"full_outer").orderBy("DIN_PIN");
 	         	  temp09 = temp09.drop(col("a_DIN_PIN"));		
-	         	  temp09.show();
+	         	  //temp09.show();
 	               
 	               
 	         	// step13***********************************************************  
 	               
 	         	 System.out.println("  joins the summarized data to the drug file that was created earlier. ---- TEMP11");
-	         	  Dataset<org.apache.spark.sql.Row> rebateSummary = drugRebate.select("*");
-	         	 rebateSummary.cache();
-	         	  rebateSummary = rebateSummary.drop(col("INTERVENTION_1"))
-	         			  					   .drop(col("INTERVENTION_2"))
-	         			  					   .drop(col("INTERVENTION_3"))
-	         			  					   .drop(col("INTERVENTION_4"))
-	         			  					   .drop(col("INTERVENTION_5"))
-	         			  					   .drop(col("INTERVENTION_6"))
-	         			  					   .drop(col("CLAIM_ID"));
+	         	  Dataset<org.apache.spark.sql.Row> rebateSummary = temp09.select("*");
+	         	  rebateSummary.cache();
+	         	  rebateSummary = rebateSummary.drop(col("CLAIM_ID"));
 	         	  
 	         			  	
 	         	  Dataset<org.apache.spark.sql.Row> distinctDin_Pin = rebateSummary.select("DIN_PIN").distinct();
@@ -391,17 +383,198 @@ public class test {
 	         		   .withColumn("YYYY_PRICE",functions.lit(null).cast(DataTypes.StringType)).withColumn("DBP_LIM_JL115",functions.lit(null).cast(DataTypes.StringType))
 	         		   .withColumn("CHQ_BACK",functions.lit(null).cast(DataTypes.StringType)).withColumn("ADJ_QTY",functions.lit(null).cast(DataTypes.StringType))
 	         		   .withColumn("FNL_QTY",functions.lit(null).cast(DataTypes.StringType)).withColumn("QTY",functions.lit(null).cast(DataTypes.StringType))
-	         		   .withColumn("DRG_CST_ALLD",functions.lit(null).cast(DataTypes.StringType))
-	         		   .withColumn("PROD_SEL",functions.lit(null).cast(DataTypes.StringType)).withColumn("PROF_FEE_ALLD",functions.lit(null).cast(DataTypes.StringType));
+	         		   .withColumn("DRG_CST_ALLD",functions.lit(null).cast(DataTypes.StringType));
+	         		   
 	         	  c = c.select("DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115","DRG_CST_ALLD"
-	         			  ,"QTY","PROD_SEL","PROF_FEE_ALLD","ADJ_QTY","FNL_QTY","IS_TWO_PRICE","CHQ_BACK");
+	         			  ,"QTY","ADJ_QTY","FNL_QTY","IS_TWO_PRICE","CHQ_BACK");
 	         	  
 	         	  rebateSummary = rebateSummary.union(c);		
 	         	  rebateSummary = rebateSummary.withColumn("CLAIM_ID", functions.row_number().over(Window.orderBy("DIN_PIN")));	 
+	         	  rebateSummary = rebateSummary.withColumn("FIRST_PRICE", col("FIRST_PRICE").cast(DataTypes.DoubleType))
+	         			  					   .withColumn("SECOND_PRICE", col("SECOND_PRICE").cast(DataTypes.DoubleType))
+	         			  					   .withColumn("YYYY_PRICE", col("YYYY_PRICE").cast(DataTypes.DoubleType))
+	         			  					   .withColumn("FNL_QTY", col("FNL_QTY").cast(DataTypes.DoubleType))
+	         			  					   .withColumn("CHQ_BACK", col("CHQ_BACK").cast(DataTypes.DoubleType))
+	         			  					   .withColumn("DRG_CST_ALLD", col("DRG_CST_ALLD").cast(DataTypes.DoubleType));
+	         	  
 	         	  rebateSummary = rebateSummary.select("CLAIM_ID","DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115","DRG_CST_ALLD"
-	         			  ,"QTY","PROD_SEL","PROF_FEE_ALLD","ADJ_QTY","FNL_QTY","IS_TWO_PRICE","CHQ_BACK");
+	         			  ,"QTY","ADJ_QTY","FNL_QTY","IS_TWO_PRICE","CHQ_BACK");
 	         	  rebateSummary.show();
-	               
+	         	
+	         	  
+	         	  
+	         	  
+	         	// generate excel form
+	         	String path = "C:\\TEMP\\IDMS\\data";
+	         	 
+	         	File file = new File(path); 
+	        	if(!file.exists()){
+	        		file.mkdirs();
+	        	}
+	         	 String filepathAndName = path + "\\Rebate_Summary_" + manufacturerCode + "_" + new Date(System.currentTimeMillis()).toString() + ".xlsx";
+	         	 XSSFWorkbook workbook = new XSSFWorkbook();
+	         	 FileOutputStream outputStream = null;
+	         	 // sheet1
+	         	 Dataset<org.apache.spark.sql.Row> rebateExcel1 = rebateSummary.select("DIN_PIN","DIN_DESC","STRENGTH","DOSAGE_FORM","DRG_CST_ALLD","FIRST_PRICE",
+	         			 "SECOND_PRICE","YYYY_PRICE","FNL_QTY","CHQ_BACK").where(col("IS_TWO_PRICE")
+	         					 .equalTo("Y")).orderBy(col("DIN_PIN"));
+	         	
+	         	 XSSFSheet sheet1 = workbook.createSheet("Two Price DIN");
+	         	int rowNum = 0;
+	            Row row1 = sheet1.createRow(rowNum++);
+	            int colNum = 0;
+	            Cell cell11 = row1.createCell(colNum++);
+	            cell11.setCellValue("DIN/PIN");
+	            Cell cell12 = row1.createCell(colNum++);
+	            cell12.setCellValue("Brand Name");
+	            Cell cell13 = row1.createCell(colNum++);
+	            cell13.setCellValue("Strength");
+	            Cell cell14 = row1.createCell(colNum++);
+	            cell14.setCellValue("Dosage Form");  
+	            Cell cell15 = row1.createCell(colNum++);  
+	            cell15.setCellValue("Manufacturer Code");
+	            Cell cell16 = row1.createCell(colNum++);
+	            cell16.setCellValue("Total Drug Cost Paid");
+	            Cell cell17 = row1.createCell(colNum++);
+	            cell17.setCellValue("Former DBP (B)");
+	            Cell cell18 = row1.createCell(colNum++);
+	            cell18.setCellValue("Current DBP (A)");
+	            Cell cell19 = row1.createCell(colNum++);
+	            cell19.setCellValue("Quantity");
+	            Cell cell110 = row1.createCell(colNum++);
+	            cell110.setCellValue("Volume Discount");
+	            double twoPriceSubTotal = 0;
+	            
+	            List<org.apache.spark.sql.Row> dataRows = rebateExcel1.collectAsList();
+	            for(org.apache.spark.sql.Row sparkRow1: dataRows) {
+	            	Row excelRow = sheet1.createRow(rowNum++);
+	            	colNum = 0;
+	            	String dinPin = sparkRow1.getString(0);
+	            	String brandName = sparkRow1.getString(1);
+	            	String strength = sparkRow1.getString(2);
+	            	String dosageForm = sparkRow1.getString(3);
+	            	double totalDrugCostPaid = sparkRow1.getDouble(4);
+	            	double formerDBP = sparkRow1.getDouble(5);
+	            	double currentDBP = sparkRow1.getDouble(6);
+	            	double quantity = sparkRow1.getDouble(8);
+	            	double volumeDiscouny = sparkRow1.getDouble(9);
+	            	
+		            Cell cell1 = excelRow.createCell(colNum++);
+		            cell1.setCellValue(dinPin);
+		            Cell cell2 = excelRow.createCell(colNum++);
+		            cell2.setCellValue(brandName);
+		            Cell cell3 = excelRow.createCell(colNum++);
+		            cell3.setCellValue(strength);
+		            Cell cell4 = excelRow.createCell(colNum++);
+		            cell4.setCellValue(dosageForm);
+		            Cell cell5 = excelRow.createCell(colNum++);
+		            cell5.setCellValue(manufacturerCode);
+		            Cell cell6 = excelRow.createCell(colNum++);
+		            cell6.setCellValue(totalDrugCostPaid);
+		            Cell cell7 = excelRow.createCell(colNum++);
+		            cell7.setCellValue(formerDBP);
+		            Cell cell8 = excelRow.createCell(colNum++);
+		            cell8.setCellValue(currentDBP);
+		            Cell cell9 = excelRow.createCell(colNum++);
+		            cell9.setCellValue(quantity);
+		            Cell cell10 = excelRow.createCell(colNum++);
+		            cell10.setCellValue(volumeDiscouny);
+		            
+		            twoPriceSubTotal += volumeDiscouny;	
+	            }
+	            
+	            Row lastRow1 = sheet1.createRow(rowNum++);
+	            Cell cellSubTotalLabel = lastRow1.createCell(colNum-2);
+	            cellSubTotalLabel.setCellValue("Subtotal");
+	            Cell cellSubTotalValue = lastRow1.createCell(colNum-1);
+	            cellSubTotalValue.setCellValue(twoPriceSubTotal);
+	            
+	            
+	            
+	         // sheet2
+	            XSSFSheet sheet2 = workbook.createSheet("Three Price DIN");
+	            Dataset<org.apache.spark.sql.Row> rebateExcel2 = rebateSummary.select("DIN_PIN","DIN_DESC","STRENGTH","DOSAGE_FORM","DRG_CST_ALLD","FIRST_PRICE",
+	         			 "SECOND_PRICE","YYYY_PRICE","FNL_QTY","CHQ_BACK").where(col("IS_TWO_PRICE")
+	         					 .equalTo("N")).orderBy(col("DIN_PIN"));
+	            int rowNum2 = 0;
+	            Row row2 = sheet2.createRow(rowNum2++);
+	            int colNum2 = 0;
+	            Cell cell21 = row2.createCell(colNum2++);
+	            cell21.setCellValue("DIN/PIN");
+	            Cell cell22 = row2.createCell(colNum2++);
+	            cell22.setCellValue("Brand Name");
+	            Cell cell23 = row2.createCell(colNum2++);
+	            cell23.setCellValue("Strength");
+	            Cell cell24 = row2.createCell(colNum2++);
+	            cell24.setCellValue("Dosage Form");  
+	            Cell cell25 = row2.createCell(colNum2++);  
+	            cell25.setCellValue("Manufacturer Code");
+	            Cell cell26 = row2.createCell(colNum2++);
+	            cell26.setCellValue("Total Drug Cost Paid");
+	            Cell cell27 = row2.createCell(colNum2++);
+	            cell27.setCellValue("Former DBP (B)");
+	            Cell cell28 = row2.createCell(colNum2++);
+	            cell28.setCellValue("Current DBP (A)");
+	            Cell cell29 = row2.createCell(colNum2++);
+	            cell29.setCellValue("Quantity");
+	            Cell cell210 = row2.createCell(colNum2++);
+	            cell210.setCellValue("Volume Discount");
+	            double threePriceSubTotal = 0;
+	            
+	            List<org.apache.spark.sql.Row> dataRows2 = rebateExcel2.collectAsList();
+	            for(org.apache.spark.sql.Row sparkRow2: dataRows2) {
+	            	Row excelRow = sheet2.createRow(rowNum2++);
+	            	colNum = 0;
+	            	String dinPin = sparkRow2.getString(0);
+	            	String brandName = sparkRow2.getString(1);
+	            	String strength = sparkRow2.getString(2);
+	            	String dosageForm = sparkRow2.getString(3);
+	            	double totalDrugCostPaid = sparkRow2.getDouble(4);
+	            	double formerDBP = sparkRow2.getDouble(5);
+	            	double currentDBP = sparkRow2.getDouble(6);
+	            	double quantity = sparkRow2.getDouble(8);
+	            	double volumeDiscouny = sparkRow2.getDouble(9);
+	            	
+		            Cell cell1 = excelRow.createCell(colNum++);
+		            cell1.setCellValue(dinPin);
+		            Cell cell2 = excelRow.createCell(colNum++);
+		            cell2.setCellValue(brandName);
+		            Cell cell3 = excelRow.createCell(colNum++);
+		            cell3.setCellValue(strength);
+		            Cell cell4 = excelRow.createCell(colNum++);
+		            cell4.setCellValue(dosageForm);
+		            Cell cell5 = excelRow.createCell(colNum++);
+		            cell5.setCellValue(manufacturerCode);
+		            Cell cell6 = excelRow.createCell(colNum++);
+		            cell6.setCellValue(totalDrugCostPaid);
+		            Cell cell7 = excelRow.createCell(colNum++);
+		            cell7.setCellValue(formerDBP);
+		            Cell cell8 = excelRow.createCell(colNum++);
+		            cell8.setCellValue(currentDBP);
+		            Cell cell9 = excelRow.createCell(colNum++);
+		            cell9.setCellValue(quantity);
+		            Cell cell10 = excelRow.createCell(colNum++);
+		            cell10.setCellValue(volumeDiscouny);
+		            
+		            threePriceSubTotal += volumeDiscouny;	
+	            }
+	            
+	            Row lastRow2 = sheet2.createRow(rowNum2++);
+	            Cell cellSubTotalLabel2 = lastRow2.createCell(colNum2-2);
+	            cellSubTotalLabel2.setCellValue("Subtotal");
+	            Cell cellSubTotalValue2 = lastRow2.createCell(colNum2-1);
+	            cellSubTotalValue2.setCellValue(threePriceSubTotal);
+	            
+	            
+	            
+	            
+	            
+	            // outputstream
+	            outputStream = new FileOutputStream(filepathAndName);
+	            workbook.write(outputStream);
+	            outputStream.close();
+	         	 
+	         	 
 	        }catch(Exception e){
 	               e.printStackTrace();
 	               throw e;

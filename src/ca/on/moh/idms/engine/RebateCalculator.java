@@ -1164,8 +1164,8 @@ public class RebateCalculator {
 	            Cell cell13 = row1.createCell(colNum++);
 	            cell13.setCellValue("Strength");
 	            Cell cell14 = row1.createCell(colNum++);
-	            cell14.setCellValue("Dosage Form");
-	            Cell cell15 = row1.createCell(colNum++);
+	            cell14.setCellValue("Dosage Form");  
+	            Cell cell15 = row1.createCell(colNum++);  
 	            cell15.setCellValue("Manufacturer Code");
 	            Cell cell16 = row1.createCell(colNum++);
 	            cell16.setCellValue("Total Drug Cost Paid");

@@ -31,6 +31,7 @@ import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.RelationalGroupedDataset;
 import org.apache.spark.sql.RowFactory;
+import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
@@ -75,47 +76,12 @@ public class RebateEngineSpark {
 		      .getOrCreate();
 
 	
-/*	
-	public static void main (String [] args) throws Exception {
-		System.out.println("Calculation engine started ...... ");
-		Logger.getLogger("org").setLevel(Level.ERROR);
-		PropertyConfig.setPropertyPath(appRoot + "\\conf\\system.properties");
-		RebateEngineSpark calculator = new RebateEngineSpark();
-		String manufacturerCode = "LEO";
-		Connection conn1 = null;
-		Connection conn2 = null;
-		
-	
-		try{
-			long startTime = System.currentTimeMillis();
-			String username = PropertyConfig.getProperty("app.config.db.username2");
-			String pwd = PropertyConfig.getProperty("app.config.db.password2");
-			String url = PropertyConfig.getProperty("app.config.db.dbUrl2");
-			conn1 = DBConnectionManager.getManager().getConnection();
-			conn2 = DBConnectionManager.getManager().getConnection(username,pwd,url);
-			
-			String filepathAndName = "C:\\TEMP\\IDMS\\data";
-			calculator.calculateRebate(manufacturerCode, conn1,conn2,filepathAndName);
-			
-			long endTime = System.currentTimeMillis();
-			long timeSpent = (endTime - startTime)/1000;
-			System.out.println("Total Time: " + timeSpent);
-			
-		}catch(Exception e){
-			e.printStackTrace();
-		}finally{
-			DBConnectionManager.getManager().closeConnection(conn1, null, null);
-			DBConnectionManager.getManager().closeConnection(conn2, null, null);
-		}
-		System.out.println("Calculation Completed. ");
-	}*/
-	
     public static void main (String [] args) throws Exception {
     	Logger.getLogger("org").setLevel(Level.ERROR);
         System.out.println("Calculation engine started ...... ");
         
         PropertyConfig.setPropertyPath(appRoot + "\\conf\\system.properties");
-        System.setProperty("hadoop.home.dir", "C:\\Spark\\hadoop");
+        System.setProperty("hadoop.home.dir", "C:\\\\Spark\\\\spark-2.3.0-bin-hadoop2.7\\\\spark-2.3.0-bin-hadoop2.7");
         
         RebateEngineSpark calculator = new RebateEngineSpark();
         String manufacturerCode = "LEO";
@@ -138,6 +104,7 @@ public class RebateEngineSpark {
                calculator.step11(manufacturerCode);
                calculator.step12(manufacturerCode);
                calculator.step13(manufacturerCode);
+               calculator.step14(manufacturerCode,filepathAndName);
                long endTime = System.currentTimeMillis();
                long timeSpent = (endTime - startTime)/1000;
                System.out.println("Total Time: " + timeSpent);
@@ -153,7 +120,7 @@ public class RebateEngineSpark {
 
   private static Dataset<org.apache.spark.sql.Row> getDataset(String sql) throws Exception{
         SparkSession spark = SparkSession.builder().appName("IdmsEngine")//.enableHiveSupport()
-                        .config("spark.executor.memory","4g").master("local[1]").getOrCreate();
+                        .config("spark.executor.memory","4g").master("local[*]").getOrCreate();
 
         String userId = PropertyConfig.getProperty(ConfigPropertyName.USERNAME);
         String pwd = PropertyConfig.getProperty(ConfigPropertyName.PASSWORD);
@@ -358,8 +325,7 @@ public class RebateEngineSpark {
                  Dataset<org.apache.spark.sql.Row> dbpData = getDataset(dbpSql).select("DIN_PIN","PRICE_LIM");
                  dbpData = dbpData.withColumnRenamed("PRICE_LIM", "DBP_LIM_JL115")
                  		.withColumnRenamed("DIN_PIN", "d_DIN_PIN");
-                 /*missingData.show();
-                 dbpData.show();*/
+               
                  missingData = missingData.join(dbpData,missingData.col("m_DIN_PIN").equalTo(dbpData.col("d_DIN_PIN")));
                  missingData = missingData.select("m_DIN_PIN","FIRST_PRICE","YYYY_PRICE","STRENGTH","DOSAGE_FORM","GEN_NAME","DBP_LIM_JL115");
                  
@@ -399,18 +365,7 @@ public static void step8(String manufacturerCode) throws Exception{
 }
 
 public static void step9(String manufacturerCode) throws Exception{
-	String sql = "Insert into TEMP06 (CLAIM_ID,DIN_PIN,DIN_DESC,GEN_NAME,STRENGTH, DOSAGE_FORM," +
-			"FIRST_PRICE,SECOND_PRICE,YYYY_PRICE,DBP_LIM_JL115,DRG_CST_ALLD,QTY,PROD_SEL,MANUFACTURER_CD,PROF_FEE_ALLD,TOT_AMT_PD, " +
-			"INTERVENTION_1,INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6," +
-			"INTERVENTION_7,INTERVENTION_8,INTERVENTION_9,INTERVENTION_10) " +
-			"select CLAIM_ID,DIN_PIN,DIN_DESC,GEN_NAME,STRENGTH, DOSAGE_FORM,FIRST_PRICE,SECOND_PRICE,YYYY_PRICE,DBP_LIM_JL115," +
-			"DRG_CST_ALLD,QTY,PROD_SEL,MANUFACTURER_CD,PROF_FEE_ALLD,TOT_AMT_PD, " +
-			"INTERVENTION_1,INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6, " +
-			"INTERVENTION_7,INTERVENTION_8,INTERVENTION_9,INTERVENTION_10 from TEMP05 " +
-			"where DBP_LIM_JL115  = SECOND_PRICE or  " +
-			"(DBP_LIM_JL115  < SECOND_PRICE and (PROD_SEL = '1' or  INTERVENTION_1 = 'MI' or  INTERVENTION_2 = 'MI' " +
-			"or  INTERVENTION_3 = 'MI' or  INTERVENTION_4 = 'MI' or  INTERVENTION_5 = 'MI' or  INTERVENTION_6 = 'MI'))";
-			//"where MANUFACTURER_CD = '" + manufacturerCode + "'";
+	
     try{
   	  System.out.println("uses selection criteria to include only claims that meet the requirements for agreement reconciliation ---- TEMP06");
   	  Dataset<org.apache.spark.sql.Row> a = RebateCalculatorCache.getSparkDatasetCache("completeClaims");
@@ -433,12 +388,7 @@ public static void step9(String manufacturerCode) throws Exception{
 }
 
 public static void step10(String manufacturerCode) throws Exception{
-	String sql = "insert into TEMP07 (CLAIM_ID,DIN_PIN,DIN_DESC,GEN_NAME,STRENGTH,DOSAGE_FORM,FIRST_PRICE,SECOND_PRICE,YYYY_PRICE," +
-			"DBP_LIM_JL115,DRG_CST_ALLD,QTY,PROD_SEL,MANUFACTURER_CD,PROF_FEE_ALLD,TOT_AMT_PD,INTERVENTION_1," +
-			"INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6,REC_EFF_DT,REC_CREATE_TIMESTAMP) " +
-			"select CLAIM_ID,DIN_PIN,DIN_DESC,GEN_NAME,STRENGTH,DOSAGE_FORM,FIRST_PRICE,SECOND_PRICE,YYYY_PRICE," +
-			"DBP_LIM_JL115,DRG_CST_ALLD,QTY,PROD_SEL,MANUFACTURER_CD,PROF_FEE_ALLD,TOT_AMT_PD,INTERVENTION_1," +
-			"INTERVENTION_2,INTERVENTION_3,INTERVENTION_4,INTERVENTION_5,INTERVENTION_6,REC_EFF_DT,REC_CREATE_TIMESTAMP  from TEMP06";
+	
     try{
   	  System.out.println(" calculates an adjusted quantity ---- TEMP07");
   	  Dataset<org.apache.spark.sql.Row> a = RebateCalculatorCache.getSparkDatasetCache("conditionalClaims");
@@ -484,12 +434,7 @@ public static void step11(String manufacturerCode) throws Exception{
 }
 
 public static void step12(String manufacturerCode) throws Exception{
-	String sql = "insert into TEMP09 (DIN_PIN,DIN_DESC,GEN_NAME,STRENGTH, DOSAGE_FORM,FIRST_PRICE,SECOND_PRICE,YYYY_PRICE,DBP_LIM_JL115, " +
-			"MANUFACTURER_CD,IS_TWO_PRICE,CHQ_BACK,FNL_QTY,ADJ_QTY,QTY,DRG_CST_ALLD)  " +
-			"select distinct b.DIN_PIN,b.DIN_DESC,b.GEN_NAME,b.STRENGTH, b.DOSAGE_FORM,b.FIRST_PRICE,b.SECOND_PRICE,b.YYYY_PRICE,b.DBP_LIM_JL115,b.MANUFACTURER_CD,b.IS_TWO_PRICE, " +
-			"a.CHQ_BACK1,a.FNL_QTY1,a.ADJ_QTY1,a.QTY1,a.DRG_CST_ALLD1 from( " +
-			"select DIN_PIN,sum(CHQ_BACK) as CHQ_BACK1,sum(FNL_QTY) as FNL_QTY1,sum(ADJ_QTY) as ADJ_QTY1,sum(QTY) as QTY1,sum(DRG_CST_ALLD) as DRG_CST_ALLD1 from DRUG_REBATE group by DIN_PIN) a " +
-			"inner join DRUG_REBATE b  on a.DIN_PIN = b.DIN_PIN order by b.DIN_PIN";
+	
     try{
   	  System.out.println(" creates a new file with the volume discount amount included for each individual claim ---- TEMP09");
   	  Dataset<org.apache.spark.sql.Row> b = RebateCalculatorCache.getSparkDatasetCache("drugRebate");
@@ -519,14 +464,8 @@ public static void step12(String manufacturerCode) throws Exception{
 public static void step13(String manufacturerCode) throws Exception{
     try{
   	  System.out.println("  joins the summarized data to the drug file that was created earlier. ---- TEMP11");
-  	  Dataset<org.apache.spark.sql.Row> rebateSummary = RebateCalculatorCache.getSparkDatasetCache("drugRebate");
-  	  rebateSummary = rebateSummary.drop(col("INTERVENTION_1"))
-  			  					   .drop(col("INTERVENTION_2"))
-  			  					   .drop(col("INTERVENTION_3"))
-  			  					   .drop(col("INTERVENTION_4"))
-  			  					   .drop(col("INTERVENTION_5"))
-  			  					   .drop(col("INTERVENTION_6"))
-  			  					   .drop(col("CLAIM_ID"));
+  	  Dataset<org.apache.spark.sql.Row> rebateSummary = RebateCalculatorCache.getSparkDatasetCache("temp09");
+  	  rebateSummary = rebateSummary.drop(col("CLAIM_ID"));
   	  
   			  	
   	  Dataset<org.apache.spark.sql.Row> distinctDin_Pin = rebateSummary.select("DIN_PIN").distinct();
@@ -549,13 +488,20 @@ public static void step13(String manufacturerCode) throws Exception{
   		   .withColumn("FNL_QTY",functions.lit(null).cast(DataTypes.StringType)).withColumn("QTY",functions.lit(null).cast(DataTypes.StringType))
   		   .withColumn("DRG_CST_ALLD",functions.lit(null).cast(DataTypes.StringType))
   		   .withColumn("PROD_SEL",functions.lit(null).cast(DataTypes.StringType)).withColumn("PROF_FEE_ALLD",functions.lit(null).cast(DataTypes.StringType));
-  	  a = a.select("DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115","DRG_CST_ALLD"
-  			  ,"QTY","PROD_SEL","PROF_FEE_ALLD","ADJ_QTY","FNL_QTY","IS_TWO_PRICE","CHQ_BACK");
+  	 a = a.select("DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115","DRG_CST_ALLD"
+			  ,"QTY","ADJ_QTY","FNL_QTY","IS_TWO_PRICE","CHQ_BACK");
   	  
-  	  rebateSummary = rebateSummary.union(a);		
+  	  rebateSummary = rebateSummary.union(a);
+  	  
   	  rebateSummary = rebateSummary.withColumn("CLAIM_ID", functions.row_number().over(Window.orderBy("DIN_PIN")));	 
+  	  rebateSummary = rebateSummary.withColumn("FIRST_PRICE", col("FIRST_PRICE").cast(DataTypes.DoubleType))
+			   .withColumn("SECOND_PRICE", col("SECOND_PRICE").cast(DataTypes.DoubleType))
+			   .withColumn("YYYY_PRICE", col("YYYY_PRICE").cast(DataTypes.DoubleType))
+			   .withColumn("FNL_QTY", col("FNL_QTY").cast(DataTypes.DoubleType))
+			   .withColumn("CHQ_BACK", col("CHQ_BACK").cast(DataTypes.DoubleType))
+			   .withColumn("DRG_CST_ALLD", col("DRG_CST_ALLD").cast(DataTypes.DoubleType));
   	  rebateSummary = rebateSummary.select("CLAIM_ID","DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115","DRG_CST_ALLD"
-  			  ,"QTY","PROD_SEL","PROF_FEE_ALLD","ADJ_QTY","FNL_QTY","IS_TWO_PRICE","CHQ_BACK");
+  			  ,"QTY","ADJ_QTY","FNL_QTY","IS_TWO_PRICE","CHQ_BACK");
   	  rebateSummary.show();
   	  RebateCalculatorCache.setSparkDatasetCache("rebateSummary",rebateSummary);
   	  
@@ -566,12 +512,200 @@ public static void step13(String manufacturerCode) throws Exception{
     }
 }
 
+
+public static void step14(String manufacturerCode, String path) throws Exception{
+	
+	
+	File file = new File(path); 
+	if(!file.exists()){
+		file.mkdirs();
+	}
+	String filepathAndName = path + "\\Rebate_Summary_" + manufacturerCode + "_" + new Date(System.currentTimeMillis()).toString() + ".xlsx";
+	FileOutputStream outputStream = null;
+	try {
+		
+     	 
+     	 XSSFWorkbook workbook = new XSSFWorkbook();
+     	 
+     	 // sheet1
+     	 Dataset<org.apache.spark.sql.Row> rebateExcel1 = RebateCalculatorCache.getSparkDatasetCache("rebateSummary").select("DIN_PIN","DIN_DESC","STRENGTH","DOSAGE_FORM","DRG_CST_ALLD","FIRST_PRICE",
+     			 "SECOND_PRICE","YYYY_PRICE","FNL_QTY","CHQ_BACK").where(col("IS_TWO_PRICE")
+     					 .equalTo("Y")).orderBy(col("DIN_PIN"));
+     	
+     	 XSSFSheet sheet1 = workbook.createSheet("Two Price DIN");
+     	int rowNum = 0;
+        Row row1 = sheet1.createRow(rowNum++);
+        int colNum = 0;
+        Cell cell11 = row1.createCell(colNum++);
+        cell11.setCellValue("DIN/PIN");
+        Cell cell12 = row1.createCell(colNum++);
+        cell12.setCellValue("Brand Name");
+        Cell cell13 = row1.createCell(colNum++);
+        cell13.setCellValue("Strength");
+        Cell cell14 = row1.createCell(colNum++);
+        cell14.setCellValue("Dosage Form");  
+        Cell cell15 = row1.createCell(colNum++);  
+        cell15.setCellValue("Manufacturer Code");
+        Cell cell16 = row1.createCell(colNum++);
+        cell16.setCellValue("Total Drug Cost Paid");
+        Cell cell17 = row1.createCell(colNum++);
+        cell17.setCellValue("Former DBP (B)");
+        Cell cell18 = row1.createCell(colNum++);
+        cell18.setCellValue("Current DBP (A)");
+        Cell cell19 = row1.createCell(colNum++);
+        cell19.setCellValue("Quantity");
+        Cell cell110 = row1.createCell(colNum++);
+        cell110.setCellValue("Volume Discount");
+        double twoPriceSubTotal = 0;
+        
+        List<org.apache.spark.sql.Row> dataRows = rebateExcel1.collectAsList();
+        for(org.apache.spark.sql.Row sparkRow1: dataRows) {
+        	Row excelRow = sheet1.createRow(rowNum++);
+        	colNum = 0;
+        	String dinPin = sparkRow1.getString(0);
+        	String brandName = sparkRow1.getString(1);
+        	String strength = sparkRow1.getString(2);
+        	String dosageForm = sparkRow1.getString(3);
+        	double totalDrugCostPaid = sparkRow1.getDouble(4);
+        	double formerDBP = sparkRow1.getDouble(5);
+        	double currentDBP = sparkRow1.getDouble(6);
+        	double quantity = sparkRow1.getDouble(8);
+        	double volumeDiscouny = sparkRow1.getDouble(9);
+        	
+            Cell cell1 = excelRow.createCell(colNum++);
+            cell1.setCellValue(dinPin);
+            Cell cell2 = excelRow.createCell(colNum++);
+            cell2.setCellValue(brandName);
+            Cell cell3 = excelRow.createCell(colNum++);
+            cell3.setCellValue(strength);
+            Cell cell4 = excelRow.createCell(colNum++);
+            cell4.setCellValue(dosageForm);
+            Cell cell5 = excelRow.createCell(colNum++);
+            cell5.setCellValue(manufacturerCode);
+            Cell cell6 = excelRow.createCell(colNum++);
+            cell6.setCellValue(totalDrugCostPaid);
+            Cell cell7 = excelRow.createCell(colNum++);
+            cell7.setCellValue(formerDBP);
+            Cell cell8 = excelRow.createCell(colNum++);
+            cell8.setCellValue(currentDBP);
+            Cell cell9 = excelRow.createCell(colNum++);
+            cell9.setCellValue(quantity);
+            Cell cell10 = excelRow.createCell(colNum++);
+            cell10.setCellValue(volumeDiscouny);
+            
+            twoPriceSubTotal += volumeDiscouny;	
+        }
+        
+        Row lastRow1 = sheet1.createRow(rowNum++);
+        Cell cellSubTotalLabel = lastRow1.createCell(colNum-2);
+        cellSubTotalLabel.setCellValue("Subtotal");
+        Cell cellSubTotalValue = lastRow1.createCell(colNum-1);
+        cellSubTotalValue.setCellValue(twoPriceSubTotal);
+        
+        
+        
+     // sheet2
+        XSSFSheet sheet2 = workbook.createSheet("Three Price DIN");
+        Dataset<org.apache.spark.sql.Row> rebateExcel2 = RebateCalculatorCache.getSparkDatasetCache("rebateSummary").select("DIN_PIN","DIN_DESC","STRENGTH","DOSAGE_FORM","DRG_CST_ALLD","FIRST_PRICE",
+     			 "SECOND_PRICE","YYYY_PRICE","FNL_QTY","CHQ_BACK").where(col("IS_TWO_PRICE")
+     					 .equalTo("N")).orderBy(col("DIN_PIN"));
+        int rowNum2 = 0;
+        Row row2 = sheet2.createRow(rowNum2++);
+        int colNum2 = 0;
+        Cell cell21 = row2.createCell(colNum2++);
+        cell21.setCellValue("DIN/PIN");
+        Cell cell22 = row2.createCell(colNum2++);
+        cell22.setCellValue("Brand Name");
+        Cell cell23 = row2.createCell(colNum2++);
+        cell23.setCellValue("Strength");
+        Cell cell24 = row2.createCell(colNum2++);
+        cell24.setCellValue("Dosage Form");  
+        Cell cell25 = row2.createCell(colNum2++);  
+        cell25.setCellValue("Manufacturer Code");
+        Cell cell26 = row2.createCell(colNum2++);
+        cell26.setCellValue("Total Drug Cost Paid");
+        Cell cell27 = row2.createCell(colNum2++);
+        cell27.setCellValue("Former DBP (B)");
+        Cell cell28 = row2.createCell(colNum2++);
+        cell28.setCellValue("Current DBP (A)");
+        Cell cell29 = row2.createCell(colNum2++);
+        cell29.setCellValue("Quantity");
+        Cell cell210 = row2.createCell(colNum2++);
+        cell210.setCellValue("Volume Discount");
+        double threePriceSubTotal = 0;
+        
+        List<org.apache.spark.sql.Row> dataRows2 = rebateExcel2.collectAsList();
+        for(org.apache.spark.sql.Row sparkRow2: dataRows2) {
+        	Row excelRow = sheet2.createRow(rowNum2++);
+        	colNum = 0;
+        	String dinPin = sparkRow2.getString(0);
+        	String brandName = sparkRow2.getString(1);
+        	String strength = sparkRow2.getString(2);
+        	String dosageForm = sparkRow2.getString(3);
+        	double totalDrugCostPaid = sparkRow2.getDouble(4);
+        	double formerDBP = sparkRow2.getDouble(5);
+        	double currentDBP = sparkRow2.getDouble(6);
+        	double quantity = sparkRow2.getDouble(8);
+        	double volumeDiscouny = sparkRow2.getDouble(9);
+        	
+            Cell cell1 = excelRow.createCell(colNum++);
+            cell1.setCellValue(dinPin);
+            Cell cell2 = excelRow.createCell(colNum++);
+            cell2.setCellValue(brandName);
+            Cell cell3 = excelRow.createCell(colNum++);
+            cell3.setCellValue(strength);
+            Cell cell4 = excelRow.createCell(colNum++);
+            cell4.setCellValue(dosageForm);
+            Cell cell5 = excelRow.createCell(colNum++);
+            cell5.setCellValue(manufacturerCode);
+            Cell cell6 = excelRow.createCell(colNum++);
+            cell6.setCellValue(totalDrugCostPaid);
+            Cell cell7 = excelRow.createCell(colNum++);
+            cell7.setCellValue(formerDBP);
+            Cell cell8 = excelRow.createCell(colNum++);
+            cell8.setCellValue(currentDBP);
+            Cell cell9 = excelRow.createCell(colNum++);
+            cell9.setCellValue(quantity);
+            Cell cell10 = excelRow.createCell(colNum++);
+            cell10.setCellValue(volumeDiscouny);
+            
+            threePriceSubTotal += volumeDiscouny;	
+        }
+        
+        Row lastRow2 = sheet2.createRow(rowNum2++);
+        Cell cellSubTotalLabel2 = lastRow2.createCell(colNum2-2);
+        cellSubTotalLabel2.setCellValue("Subtotal");
+        Cell cellSubTotalValue2 = lastRow2.createCell(colNum2-1);
+        cellSubTotalValue2.setCellValue(threePriceSubTotal);
+        
+        
+        
+        
+        
+        // outputstream
+        outputStream = new FileOutputStream(filepathAndName);
+        workbook.write(outputStream);
+        outputStream.close();
+	
+		
+		
+    }catch(Exception e){
+           e.printStackTrace();
+           throw e;
+    }finally{
+    }
+}
+
+
+
+
+
   
   
   public void calculateRebate(String manufacturerCode, Connection conn1, Connection conn2, String path) throws Exception{
 		PropertyConfig.setPropertyPath(appRoot + "\\conf\\system.properties");
 		String username = PropertyConfig.getProperty("app.config.db.username2");
-		String pwd = PropertyConfig.getProperty("app.config.db.password2");
+		String pwd = PropertyConfig.getProperty("app.config.db.passwo`rd2");
 		String url = PropertyConfig.getProperty("app.config.db.dbUrl2");
 		
 	/*	Properties sparkDBConnectionProperties = new Properties();
@@ -1730,7 +1864,7 @@ public static void step13(String manufacturerCode) throws Exception{
             outputStream.close();
             //workbook.close();
 		
-		}catch(Exception e){
+		}catch(Exception e){ 
 			e.printStackTrace();
 			throw e;
 		}finally{

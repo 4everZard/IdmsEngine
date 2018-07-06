@@ -196,6 +196,7 @@ public class RebateCalculator {
 					
 					temp01.add(row);
 				}
+				
 			}
 		}catch(Exception e){
 			e.printStackTrace();

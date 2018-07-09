@@ -106,6 +106,7 @@ public class RebateCalculator {
 						"PROG_ID <> 'TP' and DIN_PIN in (select DIN_PIN from SCHEDULE_A where MANUFACTURER_CD = '" + manufacturerCode + "')";
 		
 
+		
 		PreparedStatement ps = null;
 		PreparedStatement ps1 = null;
 		ResultSet rs = null;

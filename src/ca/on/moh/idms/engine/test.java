@@ -58,17 +58,15 @@ public class test {
                long startTime = System.currentTimeMillis();
                
                String filepathAndName = "C:\\TEMP\\IDMS\\data";
+               
                //
                String username = PropertyConfig.getProperty("app.config.db.username2");
        			String pwd = PropertyConfig.getProperty("app.config.db.password2");
        			String url = PropertyConfig.getProperty("app.config.db.dbUrl2");
        			Connection conn1 = DBConnectionManager.getManager().getConnection();
        			Connection conn2 = DBConnectionManager.getManager().getConnection(username,pwd,url);
-         
               //
-               
-               
-               
+
                System.out.println("step1_1");
                calculator.step1_1(manufacturerCode);
                long endTime = System.currentTimeMillis();
@@ -85,15 +83,11 @@ public class test {
                System.out.println("non-spark");
                startTime = System.currentTimeMillis();
                RebateCalculator calculatorJava = new RebateCalculator();
-               calculatorJava.calculateRebate(manufacturerCode, conn1, conn2, filepathAndName);
-               
+               calculatorJava.calculateRebate(manufacturerCode, conn1, conn2, filepathAndName);              
                endTime = System.currentTimeMillis();
                timeSpent = (endTime - startTime)/1000;
                System.out.println("Total Time: " + timeSpent);
-               
-              
-               
-               
+                           
         }catch(Exception e){
                e.printStackTrace();
         }finally{	
@@ -165,12 +159,14 @@ public class test {
 	        
 
 	        try{
+	        	
+
 	        		// step1 ************************************************************
 	               Dataset<org.apache.spark.sql.Row> qualifiedClaims = getDataset(sql1).cache();
 	               
 	               qualifiedClaims = qualifiedClaims.withColumn("CLAIM_ID", functions.row_number().over(Window.orderBy("DIN_PIN")));                
 	               //System.out.println("All Qualified Claims for " + manufacturerCode);
-	               //qualifiedClaims.show();
+	               qualifiedClaims.show();
 
 		
 

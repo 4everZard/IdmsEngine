@@ -1,12 +1,14 @@
 package ca.on.moh.idms.engine;
 
 
+import gov.moh.app.db.DBConnectionManager;
 import gov.moh.config.ConfigFromDB;
 import gov.moh.config.ConfigPropertyName;
 import gov.moh.config.PropertyConfig;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.sql.Connection;
 import java.sql.Date;
 import java.util.List;
 import java.util.Properties;
@@ -36,8 +38,6 @@ public class test {
 	SparkSession spark = SparkSession
 		      .builder()
 		      .appName("RebateEngineSpark")
-		      //.config("spark.sql.codegen", "false")
-		      //.config("spark.sql.inMemoryColumnarStorage.batchSize",10000)
 		      .master("local[*]")	      
 		      .getOrCreate();
 	
@@ -52,25 +52,45 @@ public class test {
         
         test calculator = new test();
         String manufacturerCode = "LEO";
-        
+             
       
         try{
                long startTime = System.currentTimeMillis();
                
                String filepathAndName = "C:\\TEMP\\IDMS\\data";
+               //
+               String username = PropertyConfig.getProperty("app.config.db.username2");
+       			String pwd = PropertyConfig.getProperty("app.config.db.password2");
+       			String url = PropertyConfig.getProperty("app.config.db.dbUrl2");
+       			Connection conn1 = DBConnectionManager.getManager().getConnection();
+       			Connection conn2 = DBConnectionManager.getManager().getConnection(username,pwd,url);
+         
+              //
                
+               
+               
+               System.out.println("step1_1");
                calculator.step1_1(manufacturerCode);
                long endTime = System.currentTimeMillis();
                long timeSpent = (endTime - startTime)/1000;
                System.out.println("Total Time: " + timeSpent);
                
-               startTime = System.currentTimeMillis();
-               
-               
+               System.out.println("step1_2");
+               startTime = System.currentTimeMillis();                  
                calculator.step1_2(manufacturerCode);
                endTime = System.currentTimeMillis();
                timeSpent = (endTime - startTime)/1000;
                System.out.println("Total Time: " + timeSpent);
+                             
+               System.out.println("non-spark");
+               startTime = System.currentTimeMillis();
+               RebateCalculator calculatorJava = new RebateCalculator();
+               calculatorJava.calculateRebate(manufacturerCode, conn1, conn2, filepathAndName);
+               
+               endTime = System.currentTimeMillis();
+               timeSpent = (endTime - startTime)/1000;
+               System.out.println("Total Time: " + timeSpent);
+               
               
                
                
@@ -149,7 +169,7 @@ public class test {
 	               Dataset<org.apache.spark.sql.Row> qualifiedClaims = getDataset(sql1).cache();
 	               
 	               qualifiedClaims = qualifiedClaims.withColumn("CLAIM_ID", functions.row_number().over(Window.orderBy("DIN_PIN")));                
-	               System.out.println("All Qualified Claims for " + manufacturerCode);
+	               //System.out.println("All Qualified Claims for " + manufacturerCode);
 	               //qualifiedClaims.show();
 
 		
@@ -167,11 +187,11 @@ public class test {
 	             		   															     .and(rawFirstPrice.col("DIN_PIN").equalTo(firstPrice.col("DIN_PIN")))
 	             		   															     .and(rawFirstPrice.col("REC_EFF_DATE").equalTo(firstPrice.col("REC_EFF_DATE")))
 	             		   															     ,"left_semi").orderBy("DIN_PIN");    				
-	                System.out.println("First Price of Drug ");
+	                //System.out.println("First Price of Drug ");
 	                //firstPrice.show();
    	               
 	             // step3 ************************************************************
-	                System.out.println("Second Price of Drug ");
+	                //System.out.println("Second Price of Drug ");
 	                Dataset<org.apache.spark.sql.Row> rawSecondPrice = getDataset(sql3).cache();	                
 	                Dataset<org.apache.spark.sql.Row> secondPrice = rawSecondPrice.groupBy("DIN_PIN","REC_EFF_DATE").agg(max("REC_CREATE_TIMESTAMP"))
 	                		.withColumnRenamed("max(REC_CREATE_TIMESTAMP)", "REC_CREATE_TIMESTAMP").cache();                        	                
@@ -184,7 +204,7 @@ public class test {
 
 	               
 	             // step4 ************************************************************
-	                System.out.println("YYYY Price of Drug ");
+	                //System.out.println("YYYY Price of Drug ");
 	                Dataset<org.apache.spark.sql.Row> rawYYYYPrice = getDataset(sql4).cache();	                
 	                Dataset<org.apache.spark.sql.Row> yyyyPrice = rawYYYYPrice.groupBy("DIN_PIN","REC_EFF_DATE").agg(max("REC_CREATE_TIMESTAMP"))
 	                		.withColumnRenamed("max(REC_CREATE_TIMESTAMP)", "REC_CREATE_TIMESTAMP").cache();
@@ -198,7 +218,7 @@ public class test {
 	               // yyyyPrice.show();
 
 	             // step5 ************************************************************
-	                System.out.println("Join the 3 previously created temporary drug files together");	              	
+	                //System.out.println("Join the 3 previously created temporary drug files together");	              	
 	         		Dataset<org.apache.spark.sql.Row> joinedClaimed = secondPrice.select("DIN_PIN","DIN_DESC","SECOND_PRICE","REC_EFF_DATE","REC_CREATE_TIMESTAMP","MANUFACTURER_CD").cache();
 	         		
 	         		firstPrice = firstPrice.withColumnRenamed("DIN_DESC","b.DIN_DESC")
@@ -221,7 +241,7 @@ public class test {
 
 	               
 	         	// step6 ************************************************************
-	         		System.out.println("Define Missing DB(TEMP 04)");
+	         		//System.out.println("Define Missing DB(TEMP 04)");
 	                 Dataset<org.apache.spark.sql.Row> missingData = getDataset(sql6)
 	                		 										.withColumnRenamed("DRUG_BENEFIT_PRICE", "FIRST_PRICE")
 	                		 										.withColumnRenamed("DIN_PIN", "m_DIN_PIN").cache();
@@ -243,7 +263,7 @@ public class test {
 	                 	
 	         	// step8 ************************************************************
 	         		
-	                 System.out.println("creates a complete file of the initial claims extract and adds all the price components contained in the drug file ---TEMP05 ");
+	                // System.out.println("creates a complete file of the initial claims extract and adds all the price components contained in the drug file ---TEMP05 ");
 	                 qualifiedClaims = qualifiedClaims.select("CLAIM_ID","DIN_PIN","DRG_CST_ALLD","QTY","PROD_SEL","PROF_FEE_ALLD","INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4",
 	           			  "INTERVENTION_5","INTERVENTION_6","INTERVENTION_7","INTERVENTION_8","INTERVENTION_9","INTERVENTION_10");
 	                 missingData = missingData.select("DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115")
@@ -259,7 +279,7 @@ public class test {
 
 	           	// step9 ************************************************************
 	         		
-	           	System.out.println("uses selection criteria to include only claims that meet the requirements for agreement reconciliation ---- TEMP06");
+	           	//System.out.println("uses selection criteria to include only claims that meet the requirements for agreement reconciliation ---- TEMP06");
 	        	 Dataset<org.apache.spark.sql.Row> conditionalClaims = completeClaims.select("*").where(col("DBP_LIM_JL115").equalTo(col("SECOND_PRICE"))
 	        			 																	.or(col("DBP_LIM_JL115").lt(col("SECOND_PRICE"))
 	        			 																	.and(col("PROD_SEL").equalTo(1).or(col("INTERVENTION_1").equalTo("MI"))
@@ -274,7 +294,7 @@ public class test {
 	        	
 	        	
 	        	// step10 ************************************************************
-	        	 System.out.println(" calculates an adjusted quantity ---- TEMP07");
+	        	 //System.out.println(" calculates an adjusted quantity ---- TEMP07");
 	     
 	         	  Dataset<org.apache.spark.sql.Row> adjustedQuantity = conditionalClaims.select("CLAIM_ID","DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE",
 	         			  "YYYY_PRICE","DBP_LIM_JL115","DRG_CST_ALLD","QTY","PROD_SEL","PROF_FEE_ALLD","INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4",
@@ -289,7 +309,7 @@ public class test {
 	         		
 	         	// step11 ************************************************************
 	         		
-	         	 System.out.println(" calculates the volume discount for each individual claim ---- TEMP08");
+	         	 //System.out.println(" calculates the volume discount for each individual claim ---- TEMP08");
 	         	  Dataset<org.apache.spark.sql.Row> drugRebate = adjustedQuantity.select("*")
 	         			 .withColumn("IS_TWO_PRICE", functions.when(col("YYYY_PRICE").isNull(), "Y").otherwise("N"))
 	         			 .withColumn("CHQ_BACK",functions.when(col("IS_TWO_PRICE").equalTo("Y").and(col("DRG_CST_ALLD").lt(1000)), (col("SECOND_PRICE").minus(col("FIRST_PRICE"))).multiply(col("FNL_QTY")).multiply(1.08))
@@ -302,7 +322,7 @@ public class test {
 	         	           	  
 	         	// step12************************************************************
 	               
-	         	 System.out.println(" creates a new file with the volume discount amount included for each individual claim ---- TEMP09");
+	         	// System.out.println(" creates a new file with the volume discount amount included for each individual claim ---- TEMP09");
 	         	  
 	         	  Dataset<org.apache.spark.sql.Row> a = drugRebate.groupBy(col("DIN_PIN")).sum("CHQ_BACK","FNL_QTY","ADJ_QTY","QTY","DRG_CST_ALLD").distinct()
 	         			  											.withColumnRenamed("sum(CHQ_BACK)", "CHQ_BACK")
@@ -321,7 +341,7 @@ public class test {
 	               
 	         	// step13***********************************************************  
 	               
-	         	 System.out.println("  joins the summarized data to the drug file that was created earlier. ---- TEMP11");
+	         	 //System.out.println("  joins the summarized data to the drug file that was created earlier. ---- TEMP11");
 	         	  Dataset<org.apache.spark.sql.Row> rebateSummary = temp09.select("*")
 	         			    											  .drop(col("CLAIM_ID")).cache();
 		  	
@@ -586,7 +606,7 @@ public class test {
 	               Dataset<org.apache.spark.sql.Row> qualifiedClaims = getDataset(sql1).cache();
 	               
 	               qualifiedClaims = qualifiedClaims.withColumn("CLAIM_ID", functions.row_number().over(Window.orderBy("DIN_PIN")));                
-	               System.out.println("All Qualified Claims for " + manufacturerCode);
+	               //System.out.println("All Qualified Claims for " + manufacturerCode);
 	               //qualifiedClaims.show();
 
 	   	        SparkSession spark = SparkSession.builder().appName("IdmsEngine")//.enableHiveSupport()
@@ -615,11 +635,11 @@ public class test {
 	             		   															     .and(rawFirstPrice.col("DIN_PIN").equalTo(firstPrice.col("DIN_PIN")))
 	             		   															     .and(rawFirstPrice.col("REC_EFF_DATE").equalTo(firstPrice.col("REC_EFF_DATE")))
 	             		   															     ,"left_semi").orderBy("DIN_PIN");    				
-	                System.out.println("First Price of Drug ");
+	                //System.out.println("First Price of Drug ");
 	                //firstPrice.show();
       	               
 	             // step3 ************************************************************
-	                System.out.println("Second Price of Drug ");
+	                //System.out.println("Second Price of Drug ");
 	                Dataset<org.apache.spark.sql.Row> rawSecondPrice = spark.read().format("jdbc").option("url", url).option("user", userId).option("password", pwd).option("dbtable",sql3).load().cache();	                
 	                Dataset<org.apache.spark.sql.Row> secondPrice = rawSecondPrice.groupBy("DIN_PIN","REC_EFF_DATE").agg(max("REC_CREATE_TIMESTAMP"))
 	                		.withColumnRenamed("max(REC_CREATE_TIMESTAMP)", "REC_CREATE_TIMESTAMP").cache();                        	                
@@ -632,7 +652,7 @@ public class test {
 
 	               
 	             // step4 ************************************************************
-	                System.out.println("YYYY Price of Drug ");
+	                //System.out.println("YYYY Price of Drug ");
 	                Dataset<org.apache.spark.sql.Row> rawYYYYPrice = spark.read().format("jdbc").option("url", url).option("user", userId).option("password", pwd).option("dbtable",sql4).load().cache();	                
 	                Dataset<org.apache.spark.sql.Row> yyyyPrice = rawYYYYPrice.groupBy("DIN_PIN","REC_EFF_DATE").agg(max("REC_CREATE_TIMESTAMP"))
 	                		.withColumnRenamed("max(REC_CREATE_TIMESTAMP)", "REC_CREATE_TIMESTAMP").cache();
@@ -646,7 +666,7 @@ public class test {
 	               // yyyyPrice.show();
    
 	             // step5 ************************************************************
-	                System.out.println("Join the 3 previously created temporary drug files together");	              	
+	                //System.out.println("Join the 3 previously created temporary drug files together");	              	
 	         		Dataset<org.apache.spark.sql.Row> joinedClaimed = secondPrice.select("DIN_PIN","DIN_DESC","SECOND_PRICE","REC_EFF_DATE","REC_CREATE_TIMESTAMP","MANUFACTURER_CD").cache();
 	         		
 	         		firstPrice = firstPrice.withColumnRenamed("DIN_DESC","b.DIN_DESC")
@@ -669,7 +689,7 @@ public class test {
 
 	               
 	         	// step6 ************************************************************
-	         		System.out.println("Define Missing DB(TEMP 04)");
+	         		//System.out.println("Define Missing DB(TEMP 04)");
 	                 Dataset<org.apache.spark.sql.Row> missingData = spark.read().format("jdbc").option("url", url).option("user", userId).option("password", pwd).option("dbtable",sql6).load()
 	                		 										.withColumnRenamed("DRUG_BENEFIT_PRICE", "FIRST_PRICE")
 	                		 										.withColumnRenamed("DIN_PIN", "m_DIN_PIN").cache();
@@ -691,7 +711,7 @@ public class test {
 	                 	
 	         	// step8 ************************************************************
 	         		
-	                 System.out.println("creates a complete file of the initial claims extract and adds all the price components contained in the drug file ---TEMP05 ");
+	                 //System.out.println("creates a complete file of the initial claims extract and adds all the price components contained in the drug file ---TEMP05 ");
 	                 qualifiedClaims = qualifiedClaims.select("CLAIM_ID","DIN_PIN","DRG_CST_ALLD","QTY","PROD_SEL","PROF_FEE_ALLD","INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4",
 	           			  "INTERVENTION_5","INTERVENTION_6","INTERVENTION_7","INTERVENTION_8","INTERVENTION_9","INTERVENTION_10");
 	                 missingData = missingData.select("DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE","YYYY_PRICE","DBP_LIM_JL115")
@@ -707,7 +727,7 @@ public class test {
 
 	           	// step9 ************************************************************
 	         		
-	           	System.out.println("uses selection criteria to include only claims that meet the requirements for agreement reconciliation ---- TEMP06");
+	           	//System.out.println("uses selection criteria to include only claims that meet the requirements for agreement reconciliation ---- TEMP06");
 	        	 Dataset<org.apache.spark.sql.Row> conditionalClaims = completeClaims.select("*").where(col("DBP_LIM_JL115").equalTo(col("SECOND_PRICE"))
 	        			 																	.or(col("DBP_LIM_JL115").lt(col("SECOND_PRICE"))
 	        			 																	.and(col("PROD_SEL").equalTo(1).or(col("INTERVENTION_1").equalTo("MI"))
@@ -722,7 +742,7 @@ public class test {
 	        	
 	        	
 	        	// step10 ************************************************************
-	        	 System.out.println(" calculates an adjusted quantity ---- TEMP07");
+	        	 //System.out.println(" calculates an adjusted quantity ---- TEMP07");
 	     
 	         	  Dataset<org.apache.spark.sql.Row> adjustedQuantity = conditionalClaims.select("CLAIM_ID","DIN_PIN","DIN_DESC","GEN_NAME","STRENGTH","DOSAGE_FORM","FIRST_PRICE","SECOND_PRICE",
 	         			  "YYYY_PRICE","DBP_LIM_JL115","DRG_CST_ALLD","QTY","PROD_SEL","PROF_FEE_ALLD","INTERVENTION_1","INTERVENTION_2","INTERVENTION_3","INTERVENTION_4",
@@ -737,7 +757,7 @@ public class test {
 	         		
 	         	// step11 ************************************************************
 	         		
-	         	 System.out.println(" calculates the volume discount for each individual claim ---- TEMP08");
+	         	 //System.out.println(" calculates the volume discount for each individual claim ---- TEMP08");
 	         	  Dataset<org.apache.spark.sql.Row> drugRebate = adjustedQuantity.select("*")
 	         			 .withColumn("IS_TWO_PRICE", functions.when(col("YYYY_PRICE").isNull(), "Y").otherwise("N"))
 	         			 .withColumn("CHQ_BACK",functions.when(col("IS_TWO_PRICE").equalTo("Y").and(col("DRG_CST_ALLD").lt(1000)), (col("SECOND_PRICE").minus(col("FIRST_PRICE"))).multiply(col("FNL_QTY")).multiply(1.08))
@@ -750,7 +770,7 @@ public class test {
 	         	           	  
 	         	// step12************************************************************
 	               
-	         	 System.out.println(" creates a new file with the volume discount amount included for each individual claim ---- TEMP09");
+	         	 //System.out.println(" creates a new file with the volume discount amount included for each individual claim ---- TEMP09");
 	         	  
 	         	  Dataset<org.apache.spark.sql.Row> a = drugRebate.groupBy(col("DIN_PIN")).sum("CHQ_BACK","FNL_QTY","ADJ_QTY","QTY","DRG_CST_ALLD").distinct()
 	         			  											.withColumnRenamed("sum(CHQ_BACK)", "CHQ_BACK")
@@ -769,7 +789,7 @@ public class test {
 	               
 	         	// step13***********************************************************  
 	               
-	         	 System.out.println("  joins the summarized data to the drug file that was created earlier. ---- TEMP11");
+	         	 //System.out.println("  joins the summarized data to the drug file that was created earlier. ---- TEMP11");
 	         	  Dataset<org.apache.spark.sql.Row> rebateSummary = temp09.select("*")
 	         			    											  .drop(col("CLAIM_ID")).cache();
 		  	
